@@ -20,6 +20,8 @@ struct ContentView: View {
             SampleData.seedIfNeeded(in: modelContext)
             NotificationScheduler.requestAuthorization()
         }
+        .tint(.goodFriendsAccent)
+        .preferredColorScheme(.dark)
     }
 
     private var tabTransition: AnyTransition {
@@ -34,6 +36,22 @@ struct ContentView: View {
                 removal: .move(edge: .trailing)
             )
         }
+    }
+}
+
+private extension Color {
+    static let goodFriendsAccent = Color(hex: "#007200")
+
+    init(hex: String) {
+        let cleanedHex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var value: UInt64 = 0
+        Scanner(string: cleanedHex).scanHexInt64(&value)
+
+        let red = Double((value >> 16) & 0xFF) / 255
+        let green = Double((value >> 8) & 0xFF) / 255
+        let blue = Double(value & 0xFF) / 255
+
+        self.init(red: red, green: green, blue: blue)
     }
 }
 
@@ -223,7 +241,8 @@ private struct CheckInCardStack: View {
                     .scaleEffect(scale(for: depth, progress: stackProgress))
                     .offset(offset(for: depth, progress: stackProgress))
                     .rotationEffect(rotation(for: depth))
-                    .shadow(color: .black.opacity(shadowOpacity(for: depth)), radius: 24, x: 0, y: 10)
+                    .shadow(color: .black.opacity(shadowOpacity(for: depth)), radius: 30, x: 0, y: 18)
+                    .shadow(color: .white.opacity(highlightOpacity(for: depth)), radius: 18, x: 0, y: -6)
                     .zIndex(Double(friends.count - depth))
                     .allowsHitTesting(depth == 0)
             }
@@ -335,7 +354,11 @@ private struct CheckInCardStack: View {
     }
 
     private func shadowOpacity(for depth: Int) -> Double {
-        depth == 0 ? 0.08 : 0.04
+        depth == 0 ? 0.42 : 0.24
+    }
+
+    private func highlightOpacity(for depth: Int) -> Double {
+        depth == 0 ? 0.10 : 0.05
     }
 }
 
@@ -346,7 +369,20 @@ private struct CheckInPromptCard: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 28, style: .continuous)
-            .fill(.background)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(.secondarySystemGroupedBackground),
+                        Color(.tertiarySystemGroupedBackground)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+            }
             .overlay(alignment: .topTrailing) {
                 if showsSkipButton {
                     Button("Skip check-in", action: onSkip)
