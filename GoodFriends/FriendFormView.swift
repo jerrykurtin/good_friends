@@ -4,12 +4,15 @@ import SwiftUI
 struct FriendFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Friend.groupName) private var friends: [Friend]
 
     private let friend: Friend?
+    private static let newGroupOption = "__new_group__"
 
     @State private var name: String
     @State private var city: String
     @State private var groupName: String
+    @State private var isAddingNewGroup: Bool
     @State private var notes: String
     @State private var reminderCadence: ReminderCadence
     @State private var customReminderValue: String
@@ -23,6 +26,7 @@ struct FriendFormView: View {
         _name = State(initialValue: friend?.name ?? "")
         _city = State(initialValue: friend?.city ?? "")
         _groupName = State(initialValue: friend?.groupName ?? "")
+        _isAddingNewGroup = State(initialValue: false)
         _notes = State(initialValue: friend?.notes ?? "")
         _reminderCadence = State(initialValue: cadence)
         _customReminderValue = State(initialValue: Self.initialCustomValue(for: thresholdDays, cadence: cadence))
@@ -34,7 +38,36 @@ struct FriendFormView: View {
             Section("Friend") {
                 TextField("Name", text: $name)
                 TextField("City", text: $city)
-                TextField("Group", text: $groupName)
+
+                if isAddingNewGroup || availableGroupNames.isEmpty {
+                    HStack {
+                        TextField("Group", text: $groupName)
+
+                        if !availableGroupNames.isEmpty {
+                            Button("Choose Existing") {
+                                isAddingNewGroup = false
+                                groupName = availableGroupNames.first ?? ""
+                            }
+                            .font(.caption.weight(.semibold))
+                        }
+                    }
+                } else {
+                    Picker("Group", selection: $groupName) {
+                        ForEach(availableGroupNames, id: \.self) { group in
+                            Text(group).tag(group)
+                        }
+
+                        Divider()
+
+                        Text("Add New Group").tag(Self.newGroupOption)
+                    }
+                    .onChange(of: groupName) { _, newValue in
+                        if newValue == Self.newGroupOption {
+                            isAddingNewGroup = true
+                            groupName = ""
+                        }
+                    }
+                }
             }
 
             Section("Reminder") {
@@ -88,6 +121,12 @@ struct FriendFormView: View {
                     .lineLimit(3...6)
             }
         }
+        .onAppear {
+            if groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let firstGroup = availableGroupNames.first {
+                groupName = firstGroup
+            }
+        }
         .navigationTitle(friend == nil ? "Add Friend" : "Edit Friend")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -108,6 +147,24 @@ struct FriendFormView: View {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && resolvedThresholdDays != nil
     }
 
+    private var availableGroupNames: [String] {
+        let names = Set(
+            friends
+                .map { $0.groupName.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+
+        if !groupName.isEmpty, groupName != Self.newGroupOption {
+            return Array(names.union([groupName])).sorted {
+                $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+            }
+        }
+
+        return Array(names).sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+    }
+
     private var resolvedThresholdDays: Int? {
         if let days = reminderCadence.thresholdDays {
             return days
@@ -123,7 +180,7 @@ struct FriendFormView: View {
 
     private func save() {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanGroupName = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGroupName = groupName == Self.newGroupOption ? "" : groupName.trimmingCharacters(in: .whitespacesAndNewlines)
         let thresholdDays = resolvedThresholdDays ?? 30
 
         let savedFriend: Friend
