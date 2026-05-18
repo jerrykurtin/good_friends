@@ -2,22 +2,114 @@ import SwiftData
 import SwiftUI
 
 struct ContentView: View {
+    @State private var selectedTab: AppTab = .checkIn
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            selectedTab.view
+
+            GlassTabBar(selectedTab: $selectedTab)
+                .padding(.horizontal, 18)
+                .padding(.bottom, 10)
+        }
+        .onAppear {
+            NotificationScheduler.requestAuthorization()
+        }
+    }
+}
+
+private enum AppTab: String, CaseIterable, Identifiable {
+    case checkIn
+    case friends
+    case history
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .checkIn: "Check In"
+        case .friends: "Friends"
+        case .history: "History"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .checkIn: "bubble.left.and.bubble.right"
+        case .friends: "person.2"
+        case .history: "clock.arrow.circlepath"
+        }
+    }
+
+    @ViewBuilder
+    var view: some View {
+        switch self {
+        case .checkIn:
+            CheckInTabView()
+        case .friends:
+            FriendsTabView()
+        case .history:
+            HistoryTabView()
+        }
+    }
+}
+
+private struct GlassTabBar: View {
+    @Binding var selectedTab: AppTab
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(AppTab.allCases) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: tab.symbolName)
+                            .font(.system(size: 17, weight: .semibold))
+
+                        Text(tab.title)
+                            .font(.caption2.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .foregroundStyle(selectedTab == tab ? Color.primary : Color.secondary)
+                    .background {
+                        if selectedTab == tab {
+                            Capsule()
+                                .fill(.white.opacity(0.32))
+                                .shadow(color: .white.opacity(0.35), radius: 8, x: 0, y: -2)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(tab.title)
+            }
+        }
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .strokeBorder(.white.opacity(0.35), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 12)
+    }
+}
+
+private struct CheckInTabView: View {
+    var body: some View {
+        NavigationStack {
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+                .navigationTitle("Check In")
+        }
+    }
+}
+
+private struct FriendsTabView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Friend.name) private var friends: [Friend]
 
     @State private var showingFriendForm = false
-
-    private var surfacedFriends: [Friend] {
-        friends
-            .sorted {
-                if $0.isDue != $1.isDue {
-                    return $0.isDue && !$1.isDue
-                }
-                return $0.dueDate < $1.dueDate
-            }
-            .prefix(2)
-            .map { $0 }
-    }
 
     private var groupedFriends: [(name: String, friends: [Friend])] {
         Dictionary(grouping: friends) { $0.groupName.trimmedOrFallback("Friends") }
@@ -28,36 +120,27 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    if surfacedFriends.isEmpty {
-                        ContentUnavailableView("Add a close friend", systemImage: "person.crop.circle.badge.plus", description: Text("Start with one or two people you want to stay close to."))
-                    } else {
-                        ForEach(surfacedFriends) { friend in
-                            CatchUpCard(friend: friend) {
-                                recordCheckIn(for: friend)
+                if friends.isEmpty {
+                    ContentUnavailableView("Add a close friend", systemImage: "person.crop.circle.badge.plus")
+                } else {
+                    ForEach(groupedFriends, id: \.name) { group in
+                        Section(group.name) {
+                            ForEach(group.friends) { friend in
+                                NavigationLink {
+                                    FriendDetailView(friend: friend)
+                                } label: {
+                                    FriendRow(friend: friend)
+                                }
                             }
-                        }
-                    }
-                } header: {
-                    Text("Catch up next")
-                }
-
-                ForEach(groupedFriends, id: \.name) { group in
-                    Section(group.name) {
-                        ForEach(group.friends) { friend in
-                            NavigationLink {
-                                FriendDetailView(friend: friend)
-                            } label: {
-                                FriendRow(friend: friend)
+                            .onDelete { offsets in
+                                deleteFriends(at: offsets, from: group.friends)
                             }
-                        }
-                        .onDelete { offsets in
-                            deleteFriends(at: offsets, from: group.friends)
                         }
                     }
                 }
             }
-            .navigationTitle("Good Friends")
+            .contentMargins(.bottom, 86, for: .scrollContent)
+            .navigationTitle("Friends")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -72,23 +155,7 @@ struct ContentView: View {
                     FriendFormView()
                 }
             }
-            .onAppear {
-                NotificationScheduler.requestAuthorization()
-            }
         }
-    }
-
-    private func recordCheckIn(for friend: Friend) {
-        if let latest = friend.latestCheckIn, Calendar.current.isDateInToday(latest.date) {
-            latest.date = .now
-        } else {
-            let checkIn = CheckIn(date: .now, friend: friend)
-            friend.checkIns.append(checkIn)
-            modelContext.insert(checkIn)
-        }
-
-        try? modelContext.save()
-        NotificationScheduler.scheduleReminder(for: friend)
     }
 
     private func deleteFriends(at offsets: IndexSet, from groupFriends: [Friend]) {
@@ -101,50 +168,41 @@ struct ContentView: View {
     }
 }
 
-private struct CatchUpCard: View {
-    let friend: Friend
-    let onCheckIn: () -> Void
+private struct HistoryTabView: View {
+    @Query(sort: \CheckIn.date, order: .reverse) private var checkIns: [CheckIn]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(friend.name)
-                        .font(.headline)
-                    Text(statusText)
-                        .font(.subheadline)
-                        .foregroundStyle(friend.isDue ? .red : .secondary)
+        NavigationStack {
+            List {
+                if checkIns.isEmpty {
+                    ContentUnavailableView("No check-ins yet", systemImage: "clock")
+                } else {
+                    ForEach(checkIns) { checkIn in
+                        HistoryRow(checkIn: checkIn)
+                    }
                 }
+            }
+            .contentMargins(.bottom, 86, for: .scrollContent)
+            .navigationTitle("History")
+        }
+    }
+}
 
-                Spacer()
+private struct HistoryRow: View {
+    let checkIn: CheckIn
 
-                Text(friend.groupName)
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(checkIn.friend?.name ?? "Deleted Friend")
+                    .font(.body)
+                Text(checkIn.date.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            if !friend.notes.isEmpty {
-                Text(friend.notes)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            Button(action: onCheckIn) {
-                Label("Checked in today", systemImage: "checkmark.circle.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
+            Spacer()
         }
-        .padding(.vertical, 6)
-    }
-
-    private var statusText: String {
-        if let latest = friend.latestCheckInDate {
-            let relative = latest.formatted(.relative(presentation: .named))
-            return friend.isDue ? "Last checked in \(relative)" : "Next reminder \(friend.dueDate.formatted(date: .abbreviated, time: .omitted))"
-        }
-
-        return friend.isDue ? "No check-ins yet" : "First reminder \(friend.dueDate.formatted(date: .abbreviated, time: .omitted))"
     }
 }
 
@@ -174,7 +232,7 @@ private struct FriendRow: View {
         if let latest = friend.latestCheckInDate {
             return "Last check-in \(latest.formatted(date: .abbreviated, time: .omitted))"
         }
-        return "Every \(friend.thresholdDays) days"
+        return "No check-ins yet"
     }
 }
 
