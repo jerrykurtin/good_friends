@@ -15,6 +15,7 @@ struct ContentView: View {
             GlassTabBar(selectedTab: $selectedTab, tabTransitionDirection: $tabTransitionDirection)
                 .padding(.horizontal, 18)
                 .padding(.bottom, 10)
+                .zIndex(10)
         }
         .onAppear {
             SampleData.seedIfNeeded(in: modelContext)
@@ -182,6 +183,7 @@ private struct CheckInTabView: View {
                         CheckInCardStack(friends: overdueFriends, selectedIndex: $selectedCardIndex) {
                             skipCheckIn(for: friend)
                         }
+                        .zIndex(2)
 
                         Button {
                             showingCheckInDetails = true
@@ -192,6 +194,7 @@ private struct CheckInTabView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
+                        .zIndex(0)
                         .sheet(isPresented: $showingCheckInDetails) {
                             NavigationStack {
                                 CheckInDetailsView(friend: friend)
