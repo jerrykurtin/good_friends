@@ -61,12 +61,35 @@ final class CheckIn {
     @Attribute(.unique) var id: UUID
     var date: Date
     var note: String
+    var kindRawValue: String
     var friend: Friend?
 
-    init(id: UUID = UUID(), date: Date = .now, note: String = "", friend: Friend? = nil) {
+    init(id: UUID = UUID(), date: Date = .now, note: String = "", kind: CheckInKind = .checkedIn, friend: Friend? = nil) {
         self.id = id
         self.date = date
         self.note = note
+        self.kindRawValue = kind.rawValue
         self.friend = friend
+    }
+
+    var kind: CheckInKind {
+        get {
+            CheckInKind(rawValue: kindRawValue) ?? .checkedIn
+        }
+        set {
+            kindRawValue = newValue.rawValue
+        }
+    }
+}
+
+enum CheckInKind: String, Codable {
+    case checkedIn
+    case skipped
+
+    var title: String {
+        switch self {
+        case .checkedIn: "Checked in"
+        case .skipped: "Skipped"
+        }
     }
 }

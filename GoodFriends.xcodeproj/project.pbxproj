@@ -13,6 +13,7 @@
 		011111111111111111111114 /* FriendFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011111111111111111111104 /* FriendFormView.swift */; };
 		011111111111111111111115 /* FriendDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011111111111111111111105 /* FriendDetailView.swift */; };
 		011111111111111111111116 /* NotificationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011111111111111111111106 /* NotificationScheduler.swift */; };
+		011111111111111111111117 /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011111111111111111111107 /* SampleData.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,6 +24,7 @@
 		011111111111111111111104 /* FriendFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendFormView.swift; sourceTree = "<group>"; };
 		011111111111111111111105 /* FriendDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendDetailView.swift; sourceTree = "<group>"; };
 		011111111111111111111106 /* NotificationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationScheduler.swift; sourceTree = "<group>"; };
+		011111111111111111111107 /* SampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleData.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,6 +55,7 @@
 				011111111111111111111104 /* FriendFormView.swift */,
 				011111111111111111111105 /* FriendDetailView.swift */,
 				011111111111111111111106 /* NotificationScheduler.swift */,
+				011111111111111111111107 /* SampleData.swift */,
 			);
 			path = GoodFriends;
 			sourceTree = "<group>";
@@ -139,6 +142,7 @@
 				011111111111111111111114 /* FriendFormView.swift in Sources */,
 				011111111111111111111115 /* FriendDetailView.swift in Sources */,
 				011111111111111111111116 /* NotificationScheduler.swift in Sources */,
+				011111111111111111111117 /* SampleData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

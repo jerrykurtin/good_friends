@@ -11,15 +11,22 @@ struct FriendFormView: View {
     @State private var city: String
     @State private var groupName: String
     @State private var notes: String
-    @State private var thresholdDays: Int
+    @State private var reminderCadence: ReminderCadence
+    @State private var customReminderValue: String
+    @State private var customReminderUnit: CustomReminderUnit
 
     init(friend: Friend? = nil) {
+        let thresholdDays = friend?.thresholdDays ?? 30
+        let cadence = ReminderCadence(thresholdDays: thresholdDays)
+
         self.friend = friend
         _name = State(initialValue: friend?.name ?? "")
         _city = State(initialValue: friend?.city ?? "")
         _groupName = State(initialValue: friend?.groupName ?? "")
         _notes = State(initialValue: friend?.notes ?? "")
-        _thresholdDays = State(initialValue: friend?.thresholdDays ?? 30)
+        _reminderCadence = State(initialValue: cadence)
+        _customReminderValue = State(initialValue: Self.initialCustomValue(for: thresholdDays, cadence: cadence))
+        _customReminderUnit = State(initialValue: Self.initialCustomUnit(for: thresholdDays, cadence: cadence))
     }
 
     var body: some View {
@@ -27,12 +34,52 @@ struct FriendFormView: View {
             Section("Friend") {
                 TextField("Name", text: $name)
                 TextField("City", text: $city)
-                TextField("How you know them", text: $groupName)
+                TextField("Group", text: $groupName)
             }
 
             Section("Reminder") {
-                Stepper(value: $thresholdDays, in: 1...365) {
-                    Text("Every \(thresholdDays) days")
+                Picker("Check in frequency", selection: $reminderCadence) {
+                    ForEach(ReminderCadence.allCases) { cadence in
+                        Text(cadence.title).tag(cadence)
+                    }
+                }
+
+                if reminderCadence == .custom {
+                    HStack(spacing: 10) {
+                        Spacer()
+
+                        Text("Every")
+                            .foregroundStyle(.secondary)
+
+                        TextField("Number", text: $customReminderValue)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.center)
+                            .frame(width: 64)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.tint.opacity(0.12), in: Capsule())
+                            .overlay {
+                                Capsule()
+                                    .strokeBorder(.tint.opacity(0.45), lineWidth: 1)
+                            }
+
+                        Picker("", selection: $customReminderUnit) {
+                            ForEach(CustomReminderUnit.allCases) { unit in
+                                Text(unit.title).tag(unit)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .tint(.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.tint.opacity(0.12), in: Capsule())
+                        .overlay {
+                            Capsule()
+                                .strokeBorder(.tint.opacity(0.45), lineWidth: 1)
+                        }
+                    }
+                    .padding(.vertical, 4)
                 }
             }
 
@@ -52,14 +99,32 @@ struct FriendFormView: View {
 
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save", action: save)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!canSave)
             }
         }
+    }
+
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && resolvedThresholdDays != nil
+    }
+
+    private var resolvedThresholdDays: Int? {
+        if let days = reminderCadence.thresholdDays {
+            return days
+        }
+
+        guard let value = Int(customReminderValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              value > 0 else {
+            return nil
+        }
+
+        return customReminderUnit.days(for: value)
     }
 
     private func save() {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanGroupName = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let thresholdDays = resolvedThresholdDays ?? 30
 
         let savedFriend: Friend
         if let friend {
@@ -84,5 +149,103 @@ struct FriendFormView: View {
         try? modelContext.save()
         NotificationScheduler.scheduleReminder(for: savedFriend)
         dismiss()
+    }
+
+    private static func initialCustomValue(for thresholdDays: Int, cadence: ReminderCadence) -> String {
+        guard cadence == .custom else {
+            return "1"
+        }
+
+        if thresholdDays >= 30 && thresholdDays.isMultiple(of: 30) {
+            return "\(thresholdDays / 30)"
+        }
+
+        return "\(thresholdDays)"
+    }
+
+    private static func initialCustomUnit(for thresholdDays: Int, cadence: ReminderCadence) -> CustomReminderUnit {
+        guard cadence == .custom else {
+            return .days
+        }
+
+        return thresholdDays >= 30 && thresholdDays.isMultiple(of: 30) ? .months : .days
+    }
+}
+
+private enum ReminderCadence: String, CaseIterable, Identifiable {
+    case daily
+    case weekly
+    case monthly
+    case everyTwoMonths
+    case twiceAYear
+    case yearly
+    case custom
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .daily: "Daily"
+        case .weekly: "Weekly"
+        case .monthly: "Monthly"
+        case .everyTwoMonths: "Every 2 months"
+        case .twiceAYear: "Twice a year"
+        case .yearly: "Yearly"
+        case .custom: "Custom"
+        }
+    }
+
+    var thresholdDays: Int? {
+        switch self {
+        case .daily: 1
+        case .weekly: 7
+        case .monthly: 30
+        case .everyTwoMonths: 60
+        case .twiceAYear: 183
+        case .yearly: 365
+        case .custom: nil
+        }
+    }
+
+    init(thresholdDays: Int) {
+        switch thresholdDays {
+        case 1:
+            self = .daily
+        case 7:
+            self = .weekly
+        case 30:
+            self = .monthly
+        case 60:
+            self = .everyTwoMonths
+        case 183:
+            self = .twiceAYear
+        case 365:
+            self = .yearly
+        default:
+            self = .custom
+        }
+    }
+}
+
+private enum CustomReminderUnit: String, CaseIterable, Identifiable {
+    case days
+    case months
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .days: "Days"
+        case .months: "Months"
+        }
+    }
+
+    func days(for value: Int) -> Int {
+        switch self {
+        case .days:
+            value
+        case .months:
+            value * 30
+        }
     }
 }
