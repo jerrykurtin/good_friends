@@ -4,18 +4,35 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: AppTab = .checkIn
+    @State private var tabTransitionDirection = 1
 
     var body: some View {
         ZStack(alignment: .bottom) {
             selectedTab.view
+                .id(selectedTab)
+                .transition(tabTransition)
 
-            GlassTabBar(selectedTab: $selectedTab)
+            GlassTabBar(selectedTab: $selectedTab, tabTransitionDirection: $tabTransitionDirection)
                 .padding(.horizontal, 18)
                 .padding(.bottom, 10)
         }
         .onAppear {
             SampleData.seedIfNeeded(in: modelContext)
             NotificationScheduler.requestAuthorization()
+        }
+    }
+
+    private var tabTransition: AnyTransition {
+        if tabTransitionDirection >= 0 {
+            .asymmetric(
+                insertion: .move(edge: .trailing),
+                removal: .move(edge: .leading)
+            )
+        } else {
+            .asymmetric(
+                insertion: .move(edge: .leading),
+                removal: .move(edge: .trailing)
+            )
         }
     }
 }
@@ -26,6 +43,14 @@ private enum AppTab: String, CaseIterable, Identifiable {
     case history
 
     var id: Self { self }
+
+    var order: Int {
+        switch self {
+        case .checkIn: 0
+        case .friends: 1
+        case .history: 2
+        }
+    }
 
     var title: String {
         switch self {
@@ -58,12 +83,20 @@ private enum AppTab: String, CaseIterable, Identifiable {
 
 private struct GlassTabBar: View {
     @Binding var selectedTab: AppTab
+    @Binding var tabTransitionDirection: Int
 
     var body: some View {
         HStack(spacing: 8) {
             ForEach(AppTab.allCases) { tab in
                 Button {
-                    selectedTab = tab
+                    guard selectedTab != tab else {
+                        return
+                    }
+
+                    tabTransitionDirection = tab.order > selectedTab.order ? 1 : -1
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+                        selectedTab = tab
+                    }
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: tab.symbolName)
@@ -179,7 +212,7 @@ private struct CheckInCardStack: View {
     @Binding var selectedIndex: Int
     let onSkip: () -> Void
 
-    @GestureState private var dragTranslation: CGSize = .zero
+    @State private var dragTranslation: CGSize = .zero
     @State private var exitTranslation: CGSize = .zero
     @State private var isAnimatingExit = false
 
@@ -200,12 +233,12 @@ private struct CheckInCardStack: View {
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 24)
-                .updating($dragTranslation) { value, state, _ in
+                .onChanged { value in
                     guard !isAnimatingExit else {
                         return
                     }
 
-                    state = value.translation
+                    dragTranslation = value.translation
                 }
                 .onEnded { value in
                     handleDragEnd(value)
@@ -244,7 +277,7 @@ private struct CheckInCardStack: View {
 
         guard shouldAdvance else {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
-                exitTranslation = .zero
+                dragTranslation = .zero
             }
             return
         }
@@ -253,6 +286,7 @@ private struct CheckInCardStack: View {
         let horizontalExit = direction >= 0 ? 720.0 : -720.0
         let verticalExit = value.translation.height + (value.predictedEndTranslation.height * 0.18)
 
+        exitTranslation = value.translation
         isAnimatingExit = true
         withAnimation(.easeInOut(duration: 0.28)) {
             exitTranslation = CGSize(width: horizontalExit, height: verticalExit)
@@ -261,6 +295,7 @@ private struct CheckInCardStack: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
             cycleCards()
             exitTranslation = .zero
+            dragTranslation = .zero
             isAnimatingExit = false
         }
     }
