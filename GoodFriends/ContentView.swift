@@ -179,12 +179,17 @@ private struct CheckInCardStack: View {
     @Binding var selectedIndex: Int
     let onSkip: () -> Void
 
+    @GestureState private var dragTranslation: CGSize = .zero
+    @State private var exitTranslation: CGSize = .zero
+    @State private var isAnimatingExit = false
+
     var body: some View {
         ZStack {
             ForEach(Array(visibleCards.enumerated()).reversed(), id: \.element.id) { depth, friend in
                 CheckInPromptCard(friend: friend, showsSkipButton: depth == 0, onSkip: onSkip)
-                    .scaleEffect(scale(for: depth))
-                    .offset(x: 0, y: yOffset(for: depth))
+                    .scaleEffect(scale(for: depth, progress: stackProgress))
+                    .offset(offset(for: depth, progress: stackProgress))
+                    .rotationEffect(rotation(for: depth))
                     .shadow(color: .black.opacity(shadowOpacity(for: depth)), radius: 24, x: 0, y: 10)
                     .zIndex(Double(friends.count - depth))
                     .allowsHitTesting(depth == 0)
@@ -195,16 +200,28 @@ private struct CheckInCardStack: View {
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    guard abs(value.translation.width) > 40 else {
+                .updating($dragTranslation) { value, state, _ in
+                    guard !isAnimatingExit else {
                         return
                     }
 
-                    cycleCards()
+                    state = value.translation
+                }
+                .onEnded { value in
+                    handleDragEnd(value)
                 }
         )
         .animation(.spring(response: 0.38, dampingFraction: 0.82), value: selectedIndex)
+        .animation(.spring(response: 0.34, dampingFraction: 0.78), value: exitTranslation)
         .accessibilityElement(children: .contain)
+    }
+
+    private var activeTranslation: CGSize {
+        isAnimatingExit ? exitTranslation : dragTranslation
+    }
+
+    private var stackProgress: CGFloat {
+        min(1, abs(activeTranslation.width) / 180)
     }
 
     private var visibleCards: [Friend] {
@@ -217,6 +234,37 @@ private struct CheckInCardStack: View {
         }
     }
 
+    private func handleDragEnd(_ value: DragGesture.Value) {
+        guard !friends.isEmpty, !isAnimatingExit else {
+            return
+        }
+
+        let projectedWidth = value.predictedEndTranslation.width
+        let shouldAdvance = abs(value.translation.width) > 110 || abs(projectedWidth) > 180
+
+        guard shouldAdvance else {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                exitTranslation = .zero
+            }
+            return
+        }
+
+        let direction = projectedWidth == 0 ? value.translation.width : projectedWidth
+        let horizontalExit = direction >= 0 ? 720.0 : -720.0
+        let verticalExit = value.translation.height + (value.predictedEndTranslation.height * 0.18)
+
+        isAnimatingExit = true
+        withAnimation(.easeInOut(duration: 0.28)) {
+            exitTranslation = CGSize(width: horizontalExit, height: verticalExit)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
+            cycleCards()
+            exitTranslation = .zero
+            isAnimatingExit = false
+        }
+    }
+
     private func cycleCards() {
         guard !friends.isEmpty else {
             return
@@ -225,12 +273,30 @@ private struct CheckInCardStack: View {
         selectedIndex = (selectedIndex + 1) % friends.count
     }
 
-    private func scale(for depth: Int) -> CGFloat {
-        max(0.88, 1 - CGFloat(depth) * 0.055)
+    private func offset(for depth: Int, progress: CGFloat) -> CGSize {
+        if depth == 0 {
+            return activeTranslation
+        }
+
+        return CGSize(width: 0, height: yOffset(for: depth, progress: progress))
     }
 
-    private func yOffset(for depth: Int) -> CGFloat {
-        CGFloat(depth) * 22
+    private func rotation(for depth: Int) -> Angle {
+        guard depth == 0 else {
+            return .degrees(0)
+        }
+
+        return .degrees(Double(activeTranslation.width / 28))
+    }
+
+    private func scale(for depth: Int, progress: CGFloat) -> CGFloat {
+        let effectiveDepth = max(0, CGFloat(depth) - progress)
+        return max(0.88, 1 - effectiveDepth * 0.055)
+    }
+
+    private func yOffset(for depth: Int, progress: CGFloat) -> CGFloat {
+        let effectiveDepth = max(0, CGFloat(depth) - progress)
+        return effectiveDepth * 22
     }
 
     private func shadowOpacity(for depth: Int) -> Double {
@@ -278,7 +344,6 @@ private struct CheckInPromptCard: View {
         return "Last checked in \(date.formatted(date: .abbreviated, time: .omitted))"
     }
 }
-
 private struct CheckInDetailsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
