@@ -44,6 +44,31 @@ private extension Color {
     static let goodFriendsAccent = Color(hex: "#007200")
 
     init(hex: String) {
+        let components = Self.rgbComponents(for: hex)
+        self.init(red: components.red, green: components.green, blue: components.blue)
+    }
+
+    static func mutedCardColor(hex: String) -> Color {
+        let components = rgbComponents(for: hex)
+
+        return Color(
+            red: components.red * 0.46 + 0.14,
+            green: components.green * 0.46 + 0.14,
+            blue: components.blue * 0.46 + 0.14
+        )
+    }
+
+    static func mutedCardShadowColor(hex: String) -> Color {
+        let components = rgbComponents(for: hex)
+
+        return Color(
+            red: components.red * 0.38 + 0.10,
+            green: components.green * 0.38 + 0.10,
+            blue: components.blue * 0.38 + 0.10
+        )
+    }
+
+    private static func rgbComponents(for hex: String) -> (red: Double, green: Double, blue: Double) {
         let cleanedHex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var value: UInt64 = 0
         Scanner(string: cleanedHex).scanHexInt64(&value)
@@ -52,7 +77,22 @@ private extension Color {
         let green = Double((value >> 8) & 0xFF) / 255
         let blue = Double(value & 0xFF) / 255
 
-        self.init(red: red, green: green, blue: blue)
+        return (red, green, blue)
+    }
+}
+
+private struct AppNavigationHeader: ViewModifier {
+    let title: String
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(title)
+    }
+}
+
+private extension View {
+    func appNavigationHeader(_ title: String) -> some View {
+        modifier(AppNavigationHeader(title: title))
     }
 }
 
@@ -153,6 +193,7 @@ private struct CheckInTabView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Friend.name) private var friends: [Friend]
     @State private var showingCheckInDetails = false
+    @State private var showingFriendForm = false
     @State private var selectedCardIndex = 0
 
     private var overdueFriends: [Friend] {
@@ -201,18 +242,28 @@ private struct CheckInTabView: View {
                             }
                         }
                     } else {
-                        ContentUnavailableView("Add a close friend", systemImage: "person.crop.circle.badge.plus")
+                        Button {
+                            showingFriendForm = true
+                        } label: {
+                            ContentUnavailableView("Add a close friend", systemImage: "person.crop.circle.badge.plus")
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(20)
                 .padding(.bottom, 86)
             }
-            .navigationTitle("Check In")
+            .appNavigationHeader("Check In")
             .onChange(of: overdueFriends.map(\.id)) { _, ids in
                 if ids.isEmpty {
                     selectedCardIndex = 0
                 } else if selectedCardIndex >= ids.count {
                     selectedCardIndex = 0
+                }
+            }
+            .sheet(isPresented: $showingFriendForm) {
+                NavigationStack {
+                    FriendFormView()
                 }
             }
         }
@@ -375,8 +426,8 @@ private struct CheckInPromptCard: View {
             .fill(
                 LinearGradient(
                     colors: [
-                        Color(.secondarySystemGroupedBackground),
-                        Color(.tertiarySystemGroupedBackground)
+                        Color.mutedCardColor(hex: friend.resolvedGroupColorHex),
+                        Color.mutedCardShadowColor(hex: friend.resolvedGroupColorHex)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -505,10 +556,15 @@ private struct FriendsTabView: View {
         NavigationStack {
             List {
                 if friends.isEmpty {
-                    ContentUnavailableView("Add a close friend", systemImage: "person.crop.circle.badge.plus")
+                    Button {
+                        showingFriendForm = true
+                    } label: {
+                        ContentUnavailableView("Add a close friend", systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .buttonStyle(.plain)
                 } else {
                     ForEach(groupedFriends, id: \.name) { group in
-                        Section(group.name) {
+                        Section {
                             ForEach(group.friends) { friend in
                                 NavigationLink {
                                     FriendDetailView(friend: friend)
@@ -519,12 +575,20 @@ private struct FriendsTabView: View {
                             .onDelete { offsets in
                                 deleteFriends(at: offsets, from: group.friends)
                             }
+                        } header: {
+                            GroupSectionHeader(
+                                name: group.name,
+                                colorHex: groupColorHex(for: group),
+                                onSelectColor: { colorHex in
+                                    setColor(colorHex, for: group)
+                                }
+                            )
                         }
                     }
                 }
             }
             .contentMargins(.bottom, 86, for: .scrollContent)
-            .navigationTitle("Friends")
+            .appNavigationHeader("Friends")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -542,6 +606,18 @@ private struct FriendsTabView: View {
         }
     }
 
+    private func groupColorHex(for group: (name: String, friends: [Friend])) -> String {
+        group.friends.first?.resolvedGroupColorHex ?? GroupColorPalette.defaultHex(for: group.name)
+    }
+
+    private func setColor(_ colorHex: String, for group: (name: String, friends: [Friend])) {
+        for friend in group.friends {
+            friend.groupColorHex = colorHex
+        }
+
+        try? modelContext.save()
+    }
+
     private func deleteFriends(at offsets: IndexSet, from groupFriends: [Friend]) {
         for index in offsets {
             let friend = groupFriends[index]
@@ -549,6 +625,50 @@ private struct FriendsTabView: View {
             modelContext.delete(friend)
         }
         try? modelContext.save()
+    }
+}
+
+private struct GroupSectionHeader: View {
+    let name: String
+    let colorHex: String
+    let onSelectColor: (String) -> Void
+
+    var body: some View {
+        HStack {
+            Label {
+                Text(name)
+            } icon: {
+                Circle()
+                    .fill(Color(hex: colorHex))
+                    .frame(width: 10, height: 10)
+            }
+
+            Spacer()
+
+            Menu {
+                ForEach(GroupColorPalette.options, id: \.self) { option in
+                    Button {
+                        onSelectColor(option)
+                    } label: {
+                        Label {
+                            Text(option == colorHex ? "\(option) Selected" : option)
+                        } icon: {
+                            Image(systemName: option == colorHex ? "checkmark.circle.fill" : "circle.fill")
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(option == colorHex ? Color.white : Color(hex: option), Color(hex: option))
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "paintpalette")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Change \(name) color")
+        }
+        .textCase(nil)
     }
 }
 
@@ -575,12 +695,13 @@ private struct HistoryTabView: View {
                                     Image(systemName: "trash")
                                         .accessibilityLabel("Delete")
                                 }
+                                .tint(.red)
                             }
                     }
                 }
             }
             .contentMargins(.bottom, 86, for: .scrollContent)
-            .navigationTitle("History")
+            .appNavigationHeader("History")
         }
     }
 

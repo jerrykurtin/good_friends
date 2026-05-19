@@ -2,7 +2,13 @@ import Foundation
 import SwiftData
 
 enum SampleData {
+    private static let isEnabled = false
+
     static func seedIfNeeded(in modelContext: ModelContext) {
+        guard isEnabled else {
+            return
+        }
+
         var descriptor = FetchDescriptor<Friend>()
         descriptor.fetchLimit = 1
 
@@ -15,6 +21,7 @@ enum SampleData {
                 name: sampleFriend.name,
                 city: sampleFriend.city,
                 groupName: sampleFriend.groupName,
+                groupColorHex: GroupColorPalette.defaultHex(for: sampleFriend.groupName),
                 notes: sampleFriend.notes,
                 thresholdDays: sampleFriend.thresholdDays,
                 createdAt: date(daysAgo: sampleFriend.createdDaysAgo)

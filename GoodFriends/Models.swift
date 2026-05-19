@@ -7,6 +7,7 @@ final class Friend {
     var name: String
     var city: String
     var groupName: String
+    var groupColorHex: String?
     var notes: String
     var thresholdDays: Int
     var createdAt: Date
@@ -19,6 +20,7 @@ final class Friend {
         name: String,
         city: String = "",
         groupName: String = "Friends",
+        groupColorHex: String? = nil,
         notes: String = "",
         thresholdDays: Int = 30,
         createdAt: Date = .now,
@@ -28,6 +30,7 @@ final class Friend {
         self.name = name
         self.city = city
         self.groupName = groupName
+        self.groupColorHex = groupColorHex
         self.notes = notes
         self.thresholdDays = thresholdDays
         self.createdAt = createdAt
@@ -53,6 +56,32 @@ final class Friend {
 
     var isDue: Bool {
         dueDate <= .now
+    }
+
+    var resolvedGroupColorHex: String {
+        guard let groupColorHex,
+              !groupColorHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return GroupColorPalette.defaultHex(for: groupName)
+        }
+
+        return groupColorHex
+    }
+}
+
+enum GroupColorPalette {
+    static let options = [
+        "#6a5acd",
+        "#cd1c18",
+        "#ffc067",
+        "#007BA7",
+        "#568203",
+        "#2D68C4"
+    ]
+
+    static func defaultHex(for groupName: String) -> String {
+        let normalized = groupName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let total = normalized.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        return options[total % options.count]
     }
 }
 

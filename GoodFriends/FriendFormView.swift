@@ -17,6 +17,11 @@ struct FriendFormView: View {
     @State private var reminderCadence: ReminderCadence
     @State private var customReminderValue: String
     @State private var customReminderUnit: CustomReminderUnit
+    @FocusState private var focusedField: Field?
+
+    private enum Field {
+        case groupName
+    }
 
     init(friend: Friend? = nil) {
         let thresholdDays = friend?.thresholdDays ?? 30
@@ -41,12 +46,14 @@ struct FriendFormView: View {
 
                 if isAddingNewGroup || availableGroupNames.isEmpty {
                     HStack {
-                        TextField("Group", text: $groupName)
+                        TextField("New group", text: $groupName)
+                            .focused($focusedField, equals: .groupName)
 
                         if !availableGroupNames.isEmpty {
                             Button("Choose Existing") {
                                 isAddingNewGroup = false
                                 groupName = availableGroupNames.first ?? ""
+                                focusedField = nil
                             }
                             .font(.caption.weight(.semibold))
                         }
@@ -65,6 +72,7 @@ struct FriendFormView: View {
                         if newValue == Self.newGroupOption {
                             isAddingNewGroup = true
                             groupName = ""
+                            focusNewGroupField()
                         }
                     }
                 }
@@ -127,6 +135,11 @@ struct FriendFormView: View {
                 groupName = firstGroup
             }
         }
+        .onChange(of: isAddingNewGroup) { _, isAddingNewGroup in
+            if isAddingNewGroup {
+                focusNewGroupField()
+            }
+        }
         .navigationTitle(friend == nil ? "Add Friend" : "Edit Friend")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -148,19 +161,13 @@ struct FriendFormView: View {
     }
 
     private var availableGroupNames: [String] {
-        let names = Set(
-            friends
+        Array(
+            Set(
+                friends
                 .map { $0.groupName.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
-        )
-
-        if !groupName.isEmpty, groupName != Self.newGroupOption {
-            return Array(names.union([groupName])).sorted {
-                $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-            }
-        }
-
-        return Array(names).sorted {
+            )
+        ).sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
         }
     }
@@ -181,13 +188,16 @@ struct FriendFormView: View {
     private func save() {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanGroupName = groupName == Self.newGroupOption ? "" : groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let savedGroupName = cleanGroupName.isEmpty ? "Friends" : cleanGroupName
+        let savedGroupColorHex = colorHex(for: savedGroupName)
         let thresholdDays = resolvedThresholdDays ?? 30
 
         let savedFriend: Friend
         if let friend {
             friend.name = cleanName
             friend.city = city.trimmingCharacters(in: .whitespacesAndNewlines)
-            friend.groupName = cleanGroupName.isEmpty ? "Friends" : cleanGroupName
+            friend.groupName = savedGroupName
+            friend.groupColorHex = savedGroupColorHex
             friend.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
             friend.thresholdDays = thresholdDays
             savedFriend = friend
@@ -195,7 +205,8 @@ struct FriendFormView: View {
             let friend = Friend(
                 name: cleanName,
                 city: city.trimmingCharacters(in: .whitespacesAndNewlines),
-                groupName: cleanGroupName.isEmpty ? "Friends" : cleanGroupName,
+                groupName: savedGroupName,
+                groupColorHex: savedGroupColorHex,
                 notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
                 thresholdDays: thresholdDays
             )
@@ -208,6 +219,22 @@ struct FriendFormView: View {
         dismiss()
     }
 
+    private func focusNewGroupField() {
+        DispatchQueue.main.async {
+            focusedField = .groupName
+        }
+    }
+
+    private func colorHex(for groupName: String) -> String {
+        if let matchingFriend = friends.first(where: {
+            $0.groupName.trimmingCharacters(in: .whitespacesAndNewlines).localizedCaseInsensitiveCompare(groupName) == .orderedSame
+        }) {
+            return matchingFriend.resolvedGroupColorHex
+        }
+
+        return GroupColorPalette.defaultHex(for: groupName)
+    }
+
     private static func initialCustomValue(for thresholdDays: Int, cadence: ReminderCadence) -> String {
         guard cadence == .custom else {
             return "1"
@@ -215,6 +242,10 @@ struct FriendFormView: View {
 
         if thresholdDays >= 30 && thresholdDays.isMultiple(of: 30) {
             return "\(thresholdDays / 30)"
+        }
+
+        if thresholdDays.isMultiple(of: 7) {
+            return "\(thresholdDays / 7)"
         }
 
         return "\(thresholdDays)"
@@ -225,7 +256,15 @@ struct FriendFormView: View {
             return .days
         }
 
-        return thresholdDays >= 30 && thresholdDays.isMultiple(of: 30) ? .months : .days
+        if thresholdDays >= 30 && thresholdDays.isMultiple(of: 30) {
+            return .months
+        }
+
+        if thresholdDays.isMultiple(of: 7) {
+            return .weeks
+        }
+
+        return .days
     }
 }
 
@@ -286,6 +325,7 @@ private enum ReminderCadence: String, CaseIterable, Identifiable {
 
 private enum CustomReminderUnit: String, CaseIterable, Identifiable {
     case days
+    case weeks
     case months
 
     var id: Self { self }
@@ -293,6 +333,7 @@ private enum CustomReminderUnit: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .days: "Days"
+        case .weeks: "Weeks"
         case .months: "Months"
         }
     }
@@ -301,6 +342,8 @@ private enum CustomReminderUnit: String, CaseIterable, Identifiable {
         switch self {
         case .days:
             value
+        case .weeks:
+            value * 7
         case .months:
             value * 30
         }
