@@ -70,18 +70,34 @@ final class Friend {
 
 enum GroupColorPalette {
     static let options = [
-        "#6a5acd",
-        "#cd1c18",
-        "#ffc067",
-        "#007BA7",
-        "#568203",
-        "#2D68C4"
+        "Lavender": "#6a5acd",
+        "Chili": "#cd1c18",
+        "Pumpkin": "#e9610a",
+        "Olive": "#568203",
+        "Royal": "#2D68C4",
+        "Chocolate": "#654321",
+        "Kale": "#2c5f34"
     ]
+
+    static var sortedOptions: [(name: String, hex: String)] {
+        options.keys.sorted().compactMap { name in
+            guard let hex = options[name] else {
+                return nil
+            }
+
+            return (name, hex)
+        }
+    }
 
     static func defaultHex(for groupName: String) -> String {
         let normalized = groupName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let total = normalized.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return options[total % options.count]
+        let options = sortedOptions
+        guard !options.isEmpty else {
+            return "#6a5acd"
+        }
+
+        return options[total % options.count].hex
     }
 }
 

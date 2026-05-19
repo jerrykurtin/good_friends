@@ -41,7 +41,7 @@ struct ContentView: View {
 }
 
 private extension Color {
-    static let goodFriendsAccent = Color(hex: "#007200")
+    static let goodFriendsAccent = Color(hex: "#249045")
 
     init(hex: String) {
         let components = Self.rgbComponents(for: hex)
@@ -633,6 +633,8 @@ private struct GroupSectionHeader: View {
     let colorHex: String
     let onSelectColor: (String) -> Void
 
+    @State private var showingColorPicker = false
+
     var body: some View {
         HStack {
             Label {
@@ -645,20 +647,8 @@ private struct GroupSectionHeader: View {
 
             Spacer()
 
-            Menu {
-                ForEach(GroupColorPalette.options, id: \.self) { option in
-                    Button {
-                        onSelectColor(option)
-                    } label: {
-                        Label {
-                            Text(option == colorHex ? "\(option) Selected" : option)
-                        } icon: {
-                            Image(systemName: option == colorHex ? "checkmark.circle.fill" : "circle.fill")
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(option == colorHex ? Color.white : Color(hex: option), Color(hex: option))
-                        }
-                    }
-                }
+            Button {
+                showingColorPicker.toggle()
             } label: {
                 Image(systemName: "paintpalette")
                     .font(.subheadline.weight(.semibold))
@@ -666,9 +656,61 @@ private struct GroupSectionHeader: View {
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("Change \(name) color")
+            .popover(isPresented: $showingColorPicker, arrowEdge: .top) {
+                GroupColorPickerPopover(
+                    selectedColorHex: colorHex,
+                    onSelectColor: { colorHex in
+                        onSelectColor(colorHex)
+                        showingColorPicker = false
+                    }
+                )
+                .presentationCompactAdaptation(.popover)
+            }
         }
         .textCase(nil)
+    }
+}
+
+private struct GroupColorPickerPopover: View {
+    let selectedColorHex: String
+    let onSelectColor: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(GroupColorPalette.sortedOptions, id: \.name) { option in
+                let isSelected = option.hex.caseInsensitiveCompare(selectedColorHex) == .orderedSame
+
+                Button {
+                    onSelectColor(option.hex)
+                } label: {
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(Color(hex: option.hex))
+                            .frame(width: 14, height: 14)
+
+                        Text(option.name)
+                            .foregroundStyle(.primary)
+
+                        Spacer(minLength: 18)
+
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(minWidth: 170, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 10)
+        .presentationCompactAdaptation(.popover)
     }
 }
 
