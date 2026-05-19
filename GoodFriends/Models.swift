@@ -127,7 +127,9 @@ final class CheckIn {
     }
 }
 
-enum CheckInKind: String, Codable {
+enum CheckInKind: String, Codable, CaseIterable, Identifiable {
+    var id: Self { self }
+
     case checkedIn
     case skipped
 

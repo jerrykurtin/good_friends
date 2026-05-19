@@ -441,8 +441,9 @@ private struct CheckInPromptCard: View {
                 if showsSkipButton {
                     Button("Skip check-in", action: onSkip)
                         .font(.caption.weight(.semibold))
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.capsule)
+                        .tint(.gray.opacity(0.45))
                         .padding(18)
                 }
             }
@@ -477,6 +478,7 @@ private struct CheckInDetailsView: View {
 
     @State private var checkInDate = Date()
     @State private var note = ""
+    @FocusState private var isNoteFocused: Bool
 
     var body: some View {
         Form {
@@ -484,16 +486,24 @@ private struct CheckInDetailsView: View {
                 LabeledContent("Name", value: friend.name)
                 LabeledContent("Last check-in", value: lastCheckInText)
             }
+            .onTapGesture {
+                isNoteFocused = false
+            }
 
             Section("Check-in date") {
                 DatePicker("Date", selection: $checkInDate, displayedComponents: .date)
             }
+            .onTapGesture {
+                isNoteFocused = false
+            }
 
             Section("Notes") {
                 TextField("Optional note", text: $note, axis: .vertical)
+                    .focused($isNoteFocused)
                     .lineLimit(3...6)
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("Check In")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -519,20 +529,9 @@ private struct CheckInDetailsView: View {
 
     private func save() {
         let cleanNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if Calendar.current.isDateInToday(checkInDate),
-           let latest = friend.latestCheckIn,
-           Calendar.current.isDateInToday(latest.date) {
-            latest.date = checkInDate
-            latest.kind = .checkedIn
-            if !cleanNote.isEmpty {
-                latest.note = cleanNote
-            }
-        } else {
-            let checkIn = CheckIn(date: checkInDate, note: cleanNote, kind: .checkedIn, friend: friend)
-            friend.checkIns.append(checkIn)
-            modelContext.insert(checkIn)
-        }
+        let checkIn = CheckIn(date: checkInDate.withCurrentTime(), note: cleanNote, kind: .checkedIn, friend: friend)
+        friend.checkIns.append(checkIn)
+        modelContext.insert(checkIn)
 
         try? modelContext.save()
         NotificationScheduler.scheduleReminder(for: friend)
@@ -571,9 +570,6 @@ private struct FriendsTabView: View {
                                 } label: {
                                     FriendRow(friend: friend)
                                 }
-                            }
-                            .onDelete { offsets in
-                                deleteFriends(at: offsets, from: group.friends)
                             }
                         } header: {
                             GroupSectionHeader(
@@ -615,15 +611,6 @@ private struct FriendsTabView: View {
             friend.groupColorHex = colorHex
         }
 
-        try? modelContext.save()
-    }
-
-    private func deleteFriends(at offsets: IndexSet, from groupFriends: [Friend]) {
-        for index in offsets {
-            let friend = groupFriends[index]
-            NotificationScheduler.cancelReminder(for: friend)
-            modelContext.delete(friend)
-        }
         try? modelContext.save()
     }
 }
@@ -758,32 +745,65 @@ private struct HistoryTabView: View {
     }
 }
 
-private struct HistoryDetailView: View {
-    let checkIn: CheckIn
+struct HistoryDetailView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Bindable var checkIn: CheckIn
+    @FocusState private var isNoteFocused: Bool
+
+    private var checkInKind: Binding<CheckInKind> {
+        Binding(
+            get: { checkIn.kind },
+            set: { checkIn.kind = $0 }
+        )
+    }
+
+    private var checkInDate: Binding<Date> {
+        Binding(
+            get: { checkIn.date },
+            set: { checkIn.date = $0.withTime(from: checkIn.date) }
+        )
+    }
 
     var body: some View {
-        List {
+        Form {
             Section("Details") {
-                LabeledContent("Type", value: checkIn.kind.title)
+                Picker("Type", selection: checkInKind) {
+                    ForEach(CheckInKind.allCases) { kind in
+                        Text(kind.title)
+                            .tag(kind)
+                    }
+                }
+
                 LabeledContent("Friend", value: checkIn.friend?.name ?? "Deleted Friend")
-                LabeledContent("Date", value: checkIn.date.formatted(date: .abbreviated, time: .omitted))
+                DatePicker("Date", selection: checkInDate, displayedComponents: .date)
+            }
+            .onTapGesture {
+                isNoteFocused = false
             }
 
             Section("Notes") {
-                if checkIn.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("No notes")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(checkIn.note)
-                }
+                TextField("Optional notes", text: $checkIn.note, axis: .vertical)
+                    .focused($isNoteFocused)
+                    .lineLimit(3...8)
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear(perform: save)
+    }
+
+    private func save() {
+        checkIn.note = checkIn.note.trimmingCharacters(in: .whitespacesAndNewlines)
+        try? modelContext.save()
+
+        if let friend = checkIn.friend {
+            NotificationScheduler.scheduleReminder(for: friend)
+        }
     }
 }
 
-private struct HistoryRow: View {
+struct HistoryRow: View {
     let checkIn: CheckIn
 
     var body: some View {
@@ -830,6 +850,28 @@ private struct FriendRow: View {
             return "Last check-in \(latest.formatted(date: .abbreviated, time: .omitted))"
         }
         return "No check-ins yet"
+    }
+}
+
+private extension Date {
+    func withCurrentTime(calendar: Calendar = .current, now: Date = .now) -> Date {
+        withTime(from: now, calendar: calendar)
+    }
+
+    func withTime(from sourceDate: Date, calendar: Calendar = .current) -> Date {
+        let dayComponents = calendar.dateComponents([.year, .month, .day], from: self)
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: sourceDate)
+        var components = DateComponents()
+        components.calendar = calendar
+        components.year = dayComponents.year
+        components.month = dayComponents.month
+        components.day = dayComponents.day
+        components.hour = timeComponents.hour
+        components.minute = timeComponents.minute
+        components.second = timeComponents.second
+        components.nanosecond = timeComponents.nanosecond
+
+        return calendar.date(from: components) ?? self
     }
 }
 

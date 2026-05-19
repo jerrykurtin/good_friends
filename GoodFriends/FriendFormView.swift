@@ -7,6 +7,7 @@ struct FriendFormView: View {
     @Query(sort: \Friend.groupName) private var friends: [Friend]
 
     private let friend: Friend?
+    private let onDelete: (() -> Void)?
     private static let newGroupOption = "__new_group__"
 
     @State private var name: String
@@ -17,17 +18,19 @@ struct FriendFormView: View {
     @State private var reminderCadence: ReminderCadence
     @State private var customReminderValue: String
     @State private var customReminderUnit: CustomReminderUnit
+    @State private var showingDeleteConfirmation = false
     @FocusState private var focusedField: Field?
 
     private enum Field {
         case groupName
     }
 
-    init(friend: Friend? = nil) {
+    init(friend: Friend? = nil, onDelete: (() -> Void)? = nil) {
         let thresholdDays = friend?.thresholdDays ?? 30
         let cadence = ReminderCadence(thresholdDays: thresholdDays)
 
         self.friend = friend
+        self.onDelete = onDelete
         _name = State(initialValue: friend?.name ?? "")
         _city = State(initialValue: friend?.city ?? "")
         _groupName = State(initialValue: friend?.groupName ?? "")
@@ -80,7 +83,7 @@ struct FriendFormView: View {
 
             Section("Reminder") {
                 Picker("Check in frequency", selection: $reminderCadence) {
-                    ForEach(ReminderCadence.allCases) { cadence in
+                    ForEach(ReminderCadence.formOptions) { cadence in
                         Text(cadence.title).tag(cadence)
                     }
                 }
@@ -128,6 +131,17 @@ struct FriendFormView: View {
                 TextField("Things to ask about", text: $notes, axis: .vertical)
                     .lineLimit(3...6)
             }
+
+            if friend != nil {
+                Section {
+                    Button(role: .destructive) {
+                        showingDeleteConfirmation = true
+                    } label: {
+                        Text("Delete Friend")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                }
+            }
         }
         .onAppear {
             if groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -139,6 +153,12 @@ struct FriendFormView: View {
             if isAddingNewGroup {
                 focusNewGroupField()
             }
+        }
+        .alert("Delete this friend?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive, action: deleteFriend)
+        } message: {
+            Text("This will remove the friend and their check-in history.")
         }
         .navigationTitle(friend == nil ? "Add Friend" : "Edit Friend")
         .navigationBarTitleDisplayMode(.inline)
@@ -219,6 +239,17 @@ struct FriendFormView: View {
         dismiss()
     }
 
+    private func deleteFriend() {
+        guard let friend else {
+            return
+        }
+
+        NotificationScheduler.cancelReminder(for: friend)
+        try? FriendDataStore.delete(friend, in: modelContext)
+        dismiss()
+        onDelete?()
+    }
+
     private func focusNewGroupField() {
         DispatchQueue.main.async {
             focusedField = .groupName
@@ -269,7 +300,6 @@ struct FriendFormView: View {
 }
 
 private enum ReminderCadence: String, CaseIterable, Identifiable {
-    case daily
     case weekly
     case monthly
     case everyTwoMonths
@@ -279,13 +309,16 @@ private enum ReminderCadence: String, CaseIterable, Identifiable {
 
     var id: Self { self }
 
+    static var formOptions: [ReminderCadence] {
+        [.weekly, .monthly, .everyTwoMonths, .twiceAYear, .yearly, .custom]
+    }
+
     var title: String {
         switch self {
-        case .daily: "Daily"
         case .weekly: "Weekly"
         case .monthly: "Monthly"
         case .everyTwoMonths: "Every 2 months"
-        case .twiceAYear: "Twice a year"
+        case .twiceAYear: "Every six months"
         case .yearly: "Yearly"
         case .custom: "Custom"
         }
@@ -293,11 +326,10 @@ private enum ReminderCadence: String, CaseIterable, Identifiable {
 
     var thresholdDays: Int? {
         switch self {
-        case .daily: 1
         case .weekly: 7
         case .monthly: 30
         case .everyTwoMonths: 60
-        case .twiceAYear: 183
+        case .twiceAYear: 180
         case .yearly: 365
         case .custom: nil
         }
@@ -305,15 +337,13 @@ private enum ReminderCadence: String, CaseIterable, Identifiable {
 
     init(thresholdDays: Int) {
         switch thresholdDays {
-        case 1:
-            self = .daily
         case 7:
             self = .weekly
         case 30:
             self = .monthly
         case 60:
             self = .everyTwoMonths
-        case 183:
+        case 180:
             self = .twiceAYear
         case 365:
             self = .yearly
