@@ -196,13 +196,18 @@ private struct CheckInTabView: View {
     @State private var showingFriendForm = false
     @State private var selectedCardIndex = 0
     @State private var isShowingNextUp = false
+    @State private var dismissedFriendIDs = Set<UUID>()
+
+    private var availableFriends: [Friend] {
+        friends.filter { !dismissedFriendIDs.contains($0.id) }
+    }
 
     private var overdueFriends: [Friend] {
-        FriendCheckInPrioritizer.topDueOrPastDueFriends(friends)
+        FriendCheckInPrioritizer.topDueOrPastDueFriends(availableFriends)
     }
 
     private var nextUpFriends: [Friend] {
-        FriendCheckInPrioritizer.topFriendsByDueDate(friends)
+        FriendCheckInPrioritizer.topFriendsByDueDate(availableFriends)
     }
 
     private var cardFriends: [Friend] {
@@ -237,16 +242,22 @@ private struct CheckInTabView: View {
                         Button {
                             showingCheckInDetails = true
                         } label: {
-                            Text("Check in")
-                                .font(.headline)
+                            Image("CheckInButtonTextWhite")
+                                .renderingMode(.original)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(height: 32)
                                 .frame(maxWidth: .infinity)
+                                .accessibilityLabel("Check in")
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
                         .zIndex(0)
                         .sheet(isPresented: $showingCheckInDetails) {
                             NavigationStack {
-                                CheckInDetailsView(friend: friend)
+                                CheckInDetailsView(friend: friend) {
+                                    dismissFromCurrentCheckInSession(friend)
+                                }
                             }
                         }
                     } else if friends.isEmpty {
@@ -256,9 +267,11 @@ private struct CheckInTabView: View {
                             ContentUnavailableView("Add a close friend", systemImage: "person.crop.circle.badge.plus")
                         }
                         .buttonStyle(.plain)
+                    } else if availableFriends.isEmpty {
+                        ContentUnavailableView("All caught up", systemImage: "heart")
                     } else {
                         VStack(spacing: 18) {
-                            ContentUnavailableView("No check-ins due", systemImage: "checkmark.circle")
+                            ContentUnavailableView("All caught up", systemImage: "heart")
 
                             Button {
                                 selectedCardIndex = 0
@@ -282,6 +295,7 @@ private struct CheckInTabView: View {
             .onChange(of: cardFriends.map(\.id)) { _, ids in
                 if ids.isEmpty {
                     selectedCardIndex = 0
+                    isShowingNextUp = false
                 } else if selectedCardIndex >= ids.count {
                     selectedCardIndex = 0
                 }
@@ -290,6 +304,11 @@ private struct CheckInTabView: View {
                 NavigationStack {
                     FriendFormView()
                 }
+            }
+            .onDisappear {
+                dismissedFriendIDs.removeAll()
+                selectedCardIndex = 0
+                isShowingNextUp = false
             }
         }
     }
@@ -301,6 +320,12 @@ private struct CheckInTabView: View {
 
         try? modelContext.save()
         NotificationScheduler.scheduleReminder(for: friend)
+        dismissFromCurrentCheckInSession(friend)
+    }
+
+    private func dismissFromCurrentCheckInSession(_ friend: Friend) {
+        dismissedFriendIDs.insert(friend.id)
+        selectedCardIndex = 0
     }
 }
 
@@ -312,12 +337,16 @@ private struct CheckInCardStack: View {
     @State private var dragTranslation: CGSize = .zero
     @State private var exitTranslation: CGSize = .zero
     @State private var isAnimatingExit = false
+    @State private var skipPopScale: CGFloat = 1
+    @State private var skipPopOpacity: Double = 1
+    @State private var skipProgress: CGFloat = 0
 
     var body: some View {
         ZStack {
             ForEach(Array(visibleCards.enumerated()).reversed(), id: \.element.id) { depth, friend in
-                CheckInPromptCard(friend: friend, showsSkipButton: depth == 0, onSkip: onSkip)
-                    .scaleEffect(scale(for: depth, progress: stackProgress))
+                CheckInPromptCard(friend: friend, showsSkipButton: depth == 0, onSkip: beginSkipAnimation)
+                    .scaleEffect(scale(for: depth, progress: stackProgress) * popScale(for: depth))
+                    .opacity(opacity(for: depth))
                     .offset(offset(for: depth, progress: stackProgress))
                     .rotationEffect(rotation(for: depth))
                     .shadow(color: .black.opacity(shadowOpacity(for: depth)), radius: 30, x: 0, y: 18)
@@ -352,7 +381,7 @@ private struct CheckInCardStack: View {
     }
 
     private var stackProgress: CGFloat {
-        min(1, abs(activeTranslation.width) / 180)
+        max(skipProgress, min(1, abs(activeTranslation.width) / 180))
     }
 
     private var visibleCards: [Friend] {
@@ -362,6 +391,39 @@ private struct CheckInCardStack: View {
 
         return friends.indices.map { offset in
             friends[(selectedIndex + offset) % friends.count]
+        }
+    }
+
+    private func beginSkipAnimation() {
+        guard !friends.isEmpty, !isAnimatingExit else {
+            return
+        }
+
+        isAnimatingExit = true
+        dragTranslation = .zero
+        exitTranslation = .zero
+
+        withAnimation(.spring(response: 0.18, dampingFraction: 0.58)) {
+            skipPopScale = 1.1
+            skipProgress = 0.45
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+            withAnimation(.easeIn(duration: 0.18)) {
+                skipPopScale = 0.12
+                skipPopOpacity = 0
+                skipProgress = 1
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
+            onSkip()
+            skipPopScale = 1
+            skipPopOpacity = 1
+            skipProgress = 0
+            dragTranslation = .zero
+            exitTranslation = .zero
+            isAnimatingExit = false
         }
     }
 
@@ -425,6 +487,14 @@ private struct CheckInCardStack: View {
     private func scale(for depth: Int, progress: CGFloat) -> CGFloat {
         let effectiveDepth = max(0, CGFloat(depth) - progress)
         return max(0.88, 1 - effectiveDepth * 0.055)
+    }
+
+    private func popScale(for depth: Int) -> CGFloat {
+        depth == 0 ? skipPopScale : 1
+    }
+
+    private func opacity(for depth: Int) -> Double {
+        depth == 0 ? skipPopOpacity : 1
     }
 
     private func yOffset(for depth: Int, progress: CGFloat) -> CGFloat {
@@ -500,6 +570,7 @@ private struct CheckInDetailsView: View {
     @Environment(\.modelContext) private var modelContext
 
     let friend: Friend
+    var onSave: (() -> Void)? = nil
 
     @State private var checkInDate = Date()
     @State private var note = ""
@@ -560,6 +631,7 @@ private struct CheckInDetailsView: View {
 
         try? modelContext.save()
         NotificationScheduler.scheduleReminder(for: friend)
+        onSave?()
         dismiss()
     }
 }
