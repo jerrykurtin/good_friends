@@ -76,7 +76,7 @@ enum GroupColorPalette {
         "Chili": "#cd1c18",
         "Pumpkin": "#e9610a",
         "Olive": "#568203",
-        "Royal": "#2D68C4",
+        "Blueberry": "#2D68C4",
         "Chocolate": "#654321",
         "Kale": "#2c5f34"
     ]
