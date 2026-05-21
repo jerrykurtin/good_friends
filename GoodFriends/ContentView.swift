@@ -90,9 +90,34 @@ private struct AppNavigationHeader: ViewModifier {
     }
 }
 
+private struct AppNavigationImageHeader: ViewModifier {
+    let imageName: String
+    let accessibilityLabel: String
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Image(imageName)
+                        .renderingMode(.original)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 220, height: 36)
+                        .accessibilityLabel(accessibilityLabel)
+                }
+            }
+    }
+}
+
 private extension View {
     func appNavigationHeader(_ title: String) -> some View {
         modifier(AppNavigationHeader(title: title))
+    }
+
+    func appNavigationImageHeader(_ imageName: String, accessibilityLabel: String) -> some View {
+        modifier(AppNavigationImageHeader(imageName: imageName, accessibilityLabel: accessibilityLabel))
     }
 }
 
@@ -279,9 +304,13 @@ private struct CheckInTabView: View {
                                     isShowingNextUp = true
                                 }
                             } label: {
-                                Text("See who's next up")
-                                    .font(.headline)
+                                Image("UpNextButtonText")
+                                    .renderingMode(.original)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(height: 32)
                                     .frame(maxWidth: .infinity)
+                                    .accessibilityLabel("See who's next up")
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.large)
@@ -291,7 +320,7 @@ private struct CheckInTabView: View {
                 .padding(20)
                 .padding(.bottom, 86)
             }
-            .appNavigationHeader("Check In")
+            .appNavigationImageHeader("GoodFriendsHeader", accessibilityLabel: "GOOD FRiENDS")
             .onChange(of: cardFriends.map(\.id)) { _, ids in
                 if ids.isEmpty {
                     selectedCardIndex = 0
@@ -340,11 +369,17 @@ private struct CheckInCardStack: View {
     @State private var skipPopScale: CGFloat = 1
     @State private var skipPopOpacity: Double = 1
     @State private var skipProgress: CGFloat = 0
+    @State private var flippedFriendID: UUID?
 
     var body: some View {
         ZStack {
             ForEach(Array(visibleCards.enumerated()).reversed(), id: \.element.id) { depth, friend in
-                CheckInPromptCard(friend: friend, showsSkipButton: depth == 0, onSkip: beginSkipAnimation)
+                CheckInPromptCard(
+                    friend: friend,
+                    showsSkipButton: depth == 0,
+                    isFlipped: depth == 0 && flippedFriendID == friend.id,
+                    onSkip: beginSkipAnimation
+                )
                     .scaleEffect(scale(for: depth, progress: stackProgress) * popScale(for: depth))
                     .opacity(opacity(for: depth))
                     .offset(offset(for: depth, progress: stackProgress))
@@ -352,6 +387,9 @@ private struct CheckInCardStack: View {
                     .shadow(color: .black.opacity(shadowOpacity(for: depth)), radius: 30, x: 0, y: 18)
                     .shadow(color: .white.opacity(highlightOpacity(for: depth)), radius: 18, x: 0, y: -6)
                     .zIndex(Double(friends.count - depth))
+                    .onTapGesture {
+                        toggleFlip(for: friend, depth: depth)
+                    }
                     .allowsHitTesting(depth == 0)
             }
         }
@@ -373,6 +411,12 @@ private struct CheckInCardStack: View {
         )
         .animation(.spring(response: 0.38, dampingFraction: 0.82), value: selectedIndex)
         .animation(.spring(response: 0.34, dampingFraction: 0.78), value: exitTranslation)
+        .onChange(of: selectedIndex) { _, _ in
+            flippedFriendID = nil
+        }
+        .onChange(of: friends.map(\.id)) { _, _ in
+            flippedFriendID = nil
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -394,12 +438,23 @@ private struct CheckInCardStack: View {
         }
     }
 
+    private func toggleFlip(for friend: Friend, depth: Int) {
+        guard depth == 0, !isAnimatingExit else {
+            return
+        }
+
+        withAnimation(.spring(response: 0.48, dampingFraction: 0.82)) {
+            flippedFriendID = flippedFriendID == friend.id ? nil : friend.id
+        }
+    }
+
     private func beginSkipAnimation() {
         guard !friends.isEmpty, !isAnimatingExit else {
             return
         }
 
         isAnimatingExit = true
+        flippedFriendID = nil
         dragTranslation = .zero
         exitTranslation = .zero
 
@@ -448,6 +503,7 @@ private struct CheckInCardStack: View {
 
         exitTranslation = value.translation
         isAnimatingExit = true
+        flippedFriendID = nil
         withAnimation(.easeInOut(duration: 0.28)) {
             exitTranslation = CGSize(width: horizontalExit, height: verticalExit)
         }
@@ -514,9 +570,43 @@ private struct CheckInCardStack: View {
 private struct CheckInPromptCard: View {
     let friend: Friend
     let showsSkipButton: Bool
+    let isFlipped: Bool
     let onSkip: () -> Void
 
     var body: some View {
+        ZStack {
+            cardBackground
+                .overlay(alignment: .topTrailing) {
+                    if showsSkipButton && !isFlipped {
+                        Button("Skip check-in", action: onSkip)
+                            .font(.caption.weight(.semibold))
+                            .buttonStyle(.borderedProminent)
+                            .buttonBorderShape(.capsule)
+                            .tint(.gray.opacity(0.45))
+                            .padding(18)
+                    }
+                }
+                .overlay(alignment: .bottomLeading) {
+                    frontContent
+                        .padding(24)
+                }
+                .opacity(isFlipped ? 0 : 1)
+
+            cardBackground
+                .overlay {
+                    backContent
+                        .padding(24)
+                }
+                .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
+                .opacity(isFlipped ? 1 : 0)
+        }
+        .rotation3DEffect(.degrees(isFlipped ? 180 : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.62)
+        .animation(.spring(response: 0.48, dampingFraction: 0.82), value: isFlipped)
+        .frame(maxWidth: .infinity)
+        .frame(height: 360)
+    }
+
+    private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 28, style: .continuous)
             .fill(
                 LinearGradient(
@@ -532,29 +622,87 @@ private struct CheckInPromptCard: View {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .strokeBorder(.white.opacity(0.18), lineWidth: 1)
             }
-            .overlay(alignment: .topTrailing) {
-                if showsSkipButton {
-                    Button("Skip check-in", action: onSkip)
-                        .font(.caption.weight(.semibold))
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.capsule)
-                        .tint(.gray.opacity(0.45))
-                        .padding(18)
-                }
-            }
-            .overlay(alignment: .bottomLeading) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(friend.name)
-                        .font(.title2.weight(.semibold))
+    }
 
-                    Text(lastCheckInText)
+    private var frontContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(friend.name)
+                .font(.title2.weight(.semibold))
+
+            Text(lastCheckInText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var backContent: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(friend.name) - \(friend.groupName)")
+                        .font(.title3.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if !cleanCity.isEmpty {
+                        Text(cleanCity)
+                            .font(.subheadline.italic())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if !cleanGeneralNotes.isEmpty {
+                    Text(cleanGeneralNotes)
+                        .font(.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Divider()
+                    .overlay(.white.opacity(0.25))
+
+                if checkInsWithNotes.isEmpty {
+                    Text("No check-in notes yet")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(checkInsWithNotes) { checkIn in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("notes from \(formattedDate(checkIn.date))")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+
+                                Text(cleanNote(for: checkIn))
+                                    .font(.subheadline)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
                 }
-                .padding(24)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 360)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var cleanCity: String {
+        friend.city.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var cleanGeneralNotes: String {
+        friend.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var checkInsWithNotes: [CheckIn] {
+        friend.checkIns
+            .filter { !cleanNote(for: $0).isEmpty }
+            .sorted { $0.date > $1.date }
+    }
+
+    private func cleanNote(for checkIn: CheckIn) -> String {
+        checkIn.note.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .omitted)
     }
 
     private var lastCheckInText: String {
@@ -681,7 +829,7 @@ private struct FriendsTabView: View {
                 }
             }
             .contentMargins(.bottom, 86, for: .scrollContent)
-            .appNavigationHeader("Friends")
+            .appNavigationImageHeader("FriendsHeader", accessibilityLabel: "FRiENDS")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -827,7 +975,7 @@ private struct HistoryTabView: View {
                 }
             }
             .contentMargins(.bottom, 86, for: .scrollContent)
-            .appNavigationHeader("History")
+            .appNavigationImageHeader("HistoryHeader", accessibilityLabel: "HiSTORY")
         }
     }
 
