@@ -253,18 +253,9 @@ private struct CheckInTabView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .top) {
+            ZStack {
                 Color(.systemGroupedBackground)
                     .ignoresSafeArea()
-
-                Image("GoodFriendsHeader")
-                    .renderingMode(.original)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 220, height: 36)
-                    .accessibilityLabel("GOOD FRiENDS")
-                    .padding(.top, 8)
-                    .zIndex(1)
 
                 VStack(spacing: 18) {
                     if let friend = selectedFriend {
@@ -327,11 +318,9 @@ private struct CheckInTabView: View {
                     }
                 }
                 .padding(20)
-                .padding(.top, 44)
                 .padding(.bottom, 86)
             }
-            .navigationTitle("")
-            .toolbar(.hidden, for: .navigationBar)
+            .appNavigationImageHeader("GoodFriendsHeader", accessibilityLabel: "GOOD FRiENDS")
             .onChange(of: cardFriends.map(\.id)) { _, ids in
                 if ids.isEmpty {
                     selectedCardIndex = 0
