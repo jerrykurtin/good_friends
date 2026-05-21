@@ -6,6 +6,8 @@ final class Friend {
     @Attribute(.unique) var id: UUID
     var name: String
     var city: String
+    // Groups are deliberately stored as lightweight friend fields instead of a separate model.
+    // If groups need richer data later, this should become its own model.
     var groupName: String
     var groupColorHex: String?
     var notes: String

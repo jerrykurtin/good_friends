@@ -195,22 +195,30 @@ private struct CheckInTabView: View {
     @State private var showingCheckInDetails = false
     @State private var showingFriendForm = false
     @State private var selectedCardIndex = 0
+    @State private var isShowingNextUp = false
 
     private var overdueFriends: [Friend] {
-        Array(friends.sorted { lhs, rhs in
-            if lhs.dueDate != rhs.dueDate {
-                return lhs.dueDate < rhs.dueDate
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }.prefix(3))
+        FriendCheckInPrioritizer.topDueOrPastDueFriends(friends)
+    }
+
+    private var nextUpFriends: [Friend] {
+        FriendCheckInPrioritizer.topFriendsByDueDate(friends)
+    }
+
+    private var cardFriends: [Friend] {
+        if !overdueFriends.isEmpty {
+            return overdueFriends
+        }
+
+        return isShowingNextUp ? nextUpFriends : []
     }
 
     private var selectedFriend: Friend? {
-        guard !overdueFriends.isEmpty else {
+        guard !cardFriends.isEmpty else {
             return nil
         }
 
-        return overdueFriends[selectedCardIndex % overdueFriends.count]
+        return cardFriends[selectedCardIndex % cardFriends.count]
     }
 
     var body: some View {
@@ -221,7 +229,7 @@ private struct CheckInTabView: View {
 
                 VStack(spacing: 18) {
                     if let friend = selectedFriend {
-                        CheckInCardStack(friends: overdueFriends, selectedIndex: $selectedCardIndex) {
+                        CheckInCardStack(friends: cardFriends, selectedIndex: $selectedCardIndex) {
                             skipCheckIn(for: friend)
                         }
                         .zIndex(2)
@@ -241,20 +249,37 @@ private struct CheckInTabView: View {
                                 CheckInDetailsView(friend: friend)
                             }
                         }
-                    } else {
+                    } else if friends.isEmpty {
                         Button {
                             showingFriendForm = true
                         } label: {
                             ContentUnavailableView("Add a close friend", systemImage: "person.crop.circle.badge.plus")
                         }
                         .buttonStyle(.plain)
+                    } else {
+                        VStack(spacing: 18) {
+                            ContentUnavailableView("No check-ins due", systemImage: "checkmark.circle")
+
+                            Button {
+                                selectedCardIndex = 0
+                                withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
+                                    isShowingNextUp = true
+                                }
+                            } label: {
+                                Text("See who's next up")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                        }
                     }
                 }
                 .padding(20)
                 .padding(.bottom, 86)
             }
             .appNavigationHeader("Check In")
-            .onChange(of: overdueFriends.map(\.id)) { _, ids in
+            .onChange(of: cardFriends.map(\.id)) { _, ids in
                 if ids.isEmpty {
                     selectedCardIndex = 0
                 } else if selectedCardIndex >= ids.count {
