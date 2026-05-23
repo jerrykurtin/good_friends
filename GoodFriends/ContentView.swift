@@ -293,10 +293,10 @@ private struct CheckInTabView: View {
                         }
                         .buttonStyle(.plain)
                     } else if availableFriends.isEmpty {
-                        ContentUnavailableView("All caught up", systemImage: "heart")
+                        AllCaughtUpView()
                     } else {
                         VStack(spacing: 18) {
-                            ContentUnavailableView("All caught up", systemImage: "heart")
+                            AllCaughtUpView()
 
                             Button {
                                 selectedCardIndex = 0
@@ -355,6 +355,65 @@ private struct CheckInTabView: View {
     private func dismissFromCurrentCheckInSession(_ friend: Friend) {
         dismissedFriendIDs.insert(friend.id)
         selectedCardIndex = 0
+    }
+}
+
+private struct AllCaughtUpView: View {
+    var body: some View {
+        ContentUnavailableView {
+            Label {
+                Text("All caught up")
+            } icon: {
+                AllCaughtUpHeartIcon()
+            }
+        }
+    }
+}
+
+private struct AllCaughtUpHeartIcon: View {
+    @State private var isHeartVisible = false
+
+    var body: some View {
+        ZStack {
+            Image(systemName: "heart")
+                .hidden()
+
+            if isHeartVisible {
+                heartImage
+            }
+        }
+        .onAppear {
+            showHeartAfterDelay()
+        }
+    }
+
+    @ViewBuilder
+    private var heartImage: some View {
+        if #available(iOS 26.0, *) {
+            Image(systemName: "heart")
+                .transition(.symbolEffect(.drawOn.wholeSymbol))
+        } else {
+            Image(systemName: "heart")
+                .transition(.opacity.combined(with: .scale(scale: 0.82)))
+        }
+    }
+
+    private func showHeartAfterDelay() {
+        guard !isHeartVisible else {
+            return
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(0.25))
+
+            guard !isHeartVisible else {
+                return
+            }
+
+            withAnimation(.easeOut(duration: 1.8)) {
+                isHeartVisible = true
+            }
+        }
     }
 }
 
