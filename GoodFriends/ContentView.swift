@@ -256,26 +256,26 @@ private struct CheckInTabView: View {
                     } else if availableFriends.isEmpty {
                         AllCaughtUpView()
                     } else {
-                        VStack(spacing: 18) {
-                            AllCaughtUpView()
+                        AllCaughtUpView()
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 404)
 
-                            Button {
-                                selectedCardIndex = 0
-                                withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
-                                    isShowingNextUp = true
-                                }
-                            } label: {
-                                Image("UpNextButtonText")
-                                    .renderingMode(.original)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(height: 32)
-                                    .frame(maxWidth: .infinity)
-                                    .accessibilityLabel("See who's next up")
+                        Button {
+                            selectedCardIndex = 0
+                            withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
+                                isShowingNextUp = true
                             }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
+                        } label: {
+                            Image("UpNextButtonText")
+                                .renderingMode(.original)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(height: 32)
+                                .frame(maxWidth: .infinity)
+                                .accessibilityLabel("See who's next up")
                         }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                     }
                 }
                 .padding(20)
