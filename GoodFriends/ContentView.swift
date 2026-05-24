@@ -31,13 +31,34 @@ struct ContentView: View {
             SampleData.seedIfNeeded(in: modelContext)
             NotificationScheduler.requestAuthorization()
         }
+        .tint(.goodFriendsAccent)
         .preferredColorScheme(.dark)
     }
 
     private func configureNativeTabBarAppearance() {
-        UITabBar.appearance().tintColor = .label
-        UITabBar.appearance().unselectedItemTintColor = .secondaryLabel
+        let appearance = UITabBarAppearance()
+        appearance.configureWithDefaultBackground()
+        configureTabBarItems(appearance.stackedLayoutAppearance)
+        configureTabBarItems(appearance.inlineLayoutAppearance)
+        configureTabBarItems(appearance.compactInlineLayoutAppearance)
+
+        let tabBar = UITabBar.appearance()
+        tabBar.tintColor = .goodFriendsAccent
+        tabBar.unselectedItemTintColor = .secondaryLabel
+        tabBar.standardAppearance = appearance
+        tabBar.scrollEdgeAppearance = appearance
     }
+
+    private func configureTabBarItems(_ itemAppearance: UITabBarItemAppearance) {
+        itemAppearance.selected.iconColor = .goodFriendsAccent
+        itemAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.goodFriendsAccent]
+        itemAppearance.normal.iconColor = .secondaryLabel
+        itemAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.secondaryLabel]
+    }
+}
+
+private extension UIColor {
+    static let goodFriendsAccent = UIColor(red: 0x24 / 255, green: 0x90 / 255, blue: 0x45 / 255, alpha: 1)
 }
 
 private extension Color {

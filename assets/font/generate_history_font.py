@@ -10,13 +10,14 @@ from fontTools.pens.transformPen import TransformPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.svgLib.path import parse_path
 from fontTools.ttLib import TTFont
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT.parent
 SOURCE = ASSETS / "history-header-trimmed.png"
-WORD = "HISTORY"
+GLYPHS = ["H", "i", "S", "T", "o", "R", "Y"]
+DISPLAY_WORD = "HiSToRY"
 FONT_NAME = "GoodFriendsHistoryPOC"
 PNGS = ROOT / "pngs"
 VECTORS = ROOT / "vectors"
@@ -26,60 +27,120 @@ DESCENT = -150
 TRACE_THRESHOLD = 32
 
 
-def tight_bbox(alpha: np.ndarray) -> tuple[int, int, int, int]:
+def clean_generated_outputs() -> None:
+    for folder in [PNGS, VECTORS]:
+        folder.mkdir(exist_ok=True)
+        for path in folder.iterdir():
+            if path.suffix.lower() in {".png", ".pbm", ".svg"}:
+                path.unlink()
+
+
+def tight_bbox(image: Image.Image) -> tuple[int, int, int, int]:
+    alpha = np.array(image.getchannel("A"))
     ys, xs = np.where(alpha > 8)
     return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 
-def segment_letters(alpha: np.ndarray) -> list[tuple[int, int]]:
-    column_has_ink = (alpha > 8).any(axis=0)
-    runs: list[tuple[int, int]] = []
-    start = None
-    for index, has_ink in enumerate(column_has_ink):
-        if has_ink and start is None:
-            start = index
-        elif not has_ink and start is not None:
-            runs.append((start, index))
-            start = None
-    if start is not None:
-        runs.append((start, len(column_has_ink)))
-
-    # Merge tiny specks into their neighbors before assigning letters.
-    wide_runs = [run for run in runs if run[1] - run[0] > 8]
-    if len(wide_runs) == len(WORD):
-        return wide_runs
-
-    # If letter art touches, split at the deepest projection valleys.
-    projection = alpha.sum(axis=0).astype(float)
-    x0, _, x1, _ = tight_bbox(alpha)
-    width = x1 - x0
-    cut_candidates = []
-    for i in range(1, len(WORD)):
-        ideal = x0 + round(width * i / len(WORD))
-        window = range(max(x0 + 8, ideal - 55), min(x1 - 8, ideal + 55))
-        cut = min(window, key=lambda x: projection[x])
-        cut_candidates.append(cut)
-
-    cuts = [x0, *sorted(cut_candidates), x1]
-    return [(cuts[i], cuts[i + 1]) for i in range(len(WORD))]
+def region_mask(size: tuple[int, int], shapes: list[tuple[str, tuple]]) -> Image.Image:
+    mask = Image.new("L", size, 0)
+    draw = ImageDraw.Draw(mask)
+    for kind, coords in shapes:
+        if kind == "rect":
+            draw.rectangle(coords, fill=255)
+        elif kind == "poly":
+            draw.polygon(coords, fill=255)
+        else:
+            raise ValueError(f"Unsupported mask shape {kind}")
+    return mask
 
 
-def crop_letter(source: Image.Image, span: tuple[int, int]) -> Image.Image:
-    alpha = np.array(source.getchannel("A"))
-    left, right = span
-    slab = alpha[:, max(0, left - 12) : min(alpha.shape[1], right + 12)]
-    _, top, _, bottom = tight_bbox(slab)
-    crop = source.crop((max(0, left - 12), top, min(alpha.shape[1], right + 12), bottom))
-    return crop
+def glyph_regions(size: tuple[int, int]) -> dict[str, Image.Image]:
+    w, h = size
+    return {
+        "H": region_mask(size, [("rect", (0, 0, 451, h))]),
+        "i": region_mask(size, [("rect", (451, 0, 592, h))]),
+        "S": region_mask(
+            size,
+            [
+                ("poly", [(592, 0), (852, 0), (890, 170), (910, h), (592, h)]),
+            ],
+        ),
+        "T": region_mask(
+            size,
+            [
+                ("poly", [(850, 0), (1168, 0), (1168, 96), (1090, 175), (850, 175)]),
+                ("poly", [(925, 130), (1085, 130), (1095, h), (900, h)]),
+            ],
+        ),
+        "o": region_mask(size, [("rect", (1110, 0, 1384, h))]),
+        "R": region_mask(
+            size,
+            [
+                ("poly", [(1410, 0), (1688, 0), (1704, h), (1410, h)]),
+            ],
+        ),
+        "Y": region_mask(
+            size,
+            [
+                ("poly", [(1710, 0), (w, 0), (w, h), (1720, h), (1716, 245)]),
+            ],
+        ),
+    }
+
+
+def extract_glyph(source: Image.Image, mask: Image.Image) -> Image.Image:
+    masked = Image.new("RGBA", source.size, (255, 255, 255, 0))
+    source_alpha = Image.composite(source.getchannel("A"), Image.new("L", source.size, 0), mask)
+    masked.paste(source, (0, 0))
+    masked.putalpha(source_alpha)
+    return masked.crop(tight_bbox(masked))
+
+
+def keep_largest_components(image: Image.Image, component_count: int) -> Image.Image:
+    alpha = np.array(image.getchannel("A"))
+    ink = alpha > 8
+    seen = np.zeros(ink.shape, dtype=bool)
+    components: list[list[tuple[int, int]]] = []
+    height, width = ink.shape
+
+    for y in range(height):
+        for x in range(width):
+            if not ink[y, x] or seen[y, x]:
+                continue
+            stack = [(x, y)]
+            seen[y, x] = True
+            component = []
+            while stack:
+                cx, cy = stack.pop()
+                component.append((cx, cy))
+                for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                    if 0 <= nx < width and 0 <= ny < height and ink[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        stack.append((nx, ny))
+            components.append(component)
+
+    keep = sorted(components, key=len, reverse=True)[:component_count]
+    component_mask = np.zeros(ink.shape, dtype=np.uint8)
+    for component in keep:
+        for x, y in component:
+            component_mask[y, x] = 255
+
+    cleaned = image.copy()
+    cleaned_alpha = Image.fromarray(
+        np.where(component_mask, alpha, 0).astype(np.uint8),
+        mode="L",
+    )
+    cleaned.putalpha(cleaned_alpha)
+    return cleaned.crop(tight_bbox(cleaned))
 
 
 def save_glyph_images(source: Image.Image) -> dict[str, Image.Image]:
-    PNGS.mkdir(exist_ok=True)
-    alpha = np.array(source.getchannel("A"))
-    spans = segment_letters(alpha)
+    clean_generated_outputs()
+    regions = glyph_regions(source.size)
     letters: dict[str, Image.Image] = {}
-    for letter, span in zip(WORD, spans):
-        glyph = crop_letter(source, span)
+    for letter in GLYPHS:
+        glyph = extract_glyph(source, regions[letter])
+        glyph = keep_largest_components(glyph, 2 if letter == "i" else 1)
         glyph.save(PNGS / f"{letter}.source.png")
 
         alpha_mask = glyph.getchannel("A")
@@ -95,7 +156,7 @@ def save_glyph_images(source: Image.Image) -> dict[str, Image.Image]:
 
 def trace_letters() -> None:
     VECTORS.mkdir(exist_ok=True)
-    for letter in WORD:
+    for letter in GLYPHS:
         subprocess.run(
             [
                 "potrace",
@@ -155,17 +216,17 @@ def empty_glyph():
 
 
 def build_font(letters: dict[str, Image.Image]) -> None:
-    glyph_order = [".notdef", "space", *WORD]
+    glyph_order = [".notdef", "space", *GLYPHS]
     glyphs = {".notdef": empty_glyph(), "space": empty_glyph()}
     metrics = {".notdef": (500, 0), "space": (360, 0)}
     cmap = {32: "space"}
 
-    for letter in WORD:
+    for letter in GLYPHS:
         glyph, advance = glyph_from_svg(VECTORS / f"{letter}.svg")
         glyphs[letter] = glyph
         metrics[letter] = (advance, 0)
-        cmap[ord(letter)] = letter
-        cmap[ord(letter.lower())] = letter
+        for character in {letter, letter.upper(), letter.lower()}:
+            cmap[ord(character)] = letter
 
     fb = FontBuilder(UNITS_PER_EM, isTTF=True)
     fb.setupGlyphOrder(glyph_order)
@@ -198,6 +259,8 @@ def build_font(letters: dict[str, Image.Image]) -> None:
 
 
 def write_test_page() -> None:
+    supported_chars = "".join(sorted({c for glyph in GLYPHS for c in {glyph, glyph.upper(), glyph.lower()}}))
+    unicode_range = ", ".join(f"U+{ord(char):04X}" for char in [" ", *supported_chars])
     (ROOT / "test.css").write_text(
         f"""@font-face {{
   font-family: "{FONT_NAME}";
@@ -206,7 +269,7 @@ def write_test_page() -> None:
   font-weight: 400;
   font-style: normal;
   font-display: swap;
-  unicode-range: U+0020, U+0048, U+0049, U+004F, U+0052, U+0053, U+0054, U+0059, U+0068, U+0069, U+006F, U+0072, U+0073, U+0074, U+0079;
+  unicode-range: {unicode_range};
 }}
 
 :root {{
@@ -289,10 +352,10 @@ h1 {{
   </head>
   <body>
     <main>
-      <h1>HISTORY</h1>
-      <div class="sample">HISTORY history</div>
+      <h1>{DISPLAY_WORD}</h1>
+      <div class="sample">HISTORY {DISPLAY_WORD}</div>
       <section class="grid" aria-label="Uppercase letters and numbers">
-        {"".join(f'<div class="cell{" fallback" if char not in WORD else ""}">{char}</div>' for char in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")}
+        {"".join(f'<div class="cell{" fallback" if char not in supported_chars else ""}">{char}</div>' for char in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")}
       </section>
     </main>
   </body>
