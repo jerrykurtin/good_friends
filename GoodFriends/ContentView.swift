@@ -1209,146 +1209,112 @@ private struct StatsFriendOverviewCard: View {
     let closeFriendsCount: Int
     let plannedCheckInsPerMonth: Int
 
-    @State private var peopleOffset: CGSize = .zero
-    @State private var peopleScale = 1.0
-    @State private var editableLeftHandAnchor = CGPoint(x: 0.099, y: 0.465)
-    @State private var editableRightHandAnchor = CGPoint(x: 0.901, y: 0.465)
-    @GestureState private var activePeopleDrag: CGSize = .zero
-
     // Tune these normalized points to move the strings' hand anchors.
     // x and y are measured from the silhouette image's top-left corner, from 0...1.
-    private let defaultLeftHandAnchor = CGPoint(x: 0.08, y: 0.60)
-    private let defaultRightHandAnchor = CGPoint(x: 0.92, y: 0.60)
+    private let leftHandAnchor = CGPoint(x: 0.099, y: 0.465)
+    private let rightHandAnchor = CGPoint(x: 0.901, y: 0.465)
     private let silhouetteSourceSize = CGSize(width: 853, height: 1844)
+    private let balloonScale: CGFloat = 1.10
+    private let rightBalloonYOffset: CGFloat = 0.104
+    private let stringAttachmentY: CGFloat = 0.426
+
+    // Tune these balloon body values, then copy the adjusted values back here.
+    @State private var balloonSideInset: CGFloat = -0.2
+    @State private var balloonShoulderY: CGFloat = 0.468
+    @State private var balloonLowerFullness: CGFloat = 1
+    @State private var balloonNeckWidth: CGFloat = 0.0
+    @State private var balloonBottomY: CGFloat = 0.995
 
     var body: some View {
-        GeometryReader { proxy in
-            let size = proxy.size
-            let balloonSize = CGSize(
-                width: min(126, size.width * 0.30),
-                height: min(140, size.width * 0.34)
-            )
-            let leftBalloonCenter = CGPoint(x: size.width * 0.27, y: size.height * 0.24)
-            let rightBalloonCenter = CGPoint(x: size.width * 0.73, y: size.height * 0.24)
-            let imageFrameSize = CGSize(
-                width: size.width * 1.26 * peopleScale,
-                height: size.height * 1.02 * peopleScale
-            )
-            let imageCenter = CGPoint(
-                x: size.width * 0.5 + peopleOffset.width + activePeopleDrag.width,
-                y: size.height * 0.75 + peopleOffset.height + activePeopleDrag.height
-            )
-            let imageRect = renderedImageRect(
-                sourceSize: silhouetteSourceSize,
-                frameSize: imageFrameSize,
-                center: imageCenter
-            )
-            let leftHandPoint = point(in: imageRect, normalized: leftHandAnchor)
-            let rightHandPoint = point(in: imageRect, normalized: rightHandAnchor)
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Balloon shape tuning")
+                    .font(.caption.weight(.semibold))
 
-            ZStack {
-                statsBalloonString(
-                    from: leftHandPoint,
-                    to: CGPoint(x: leftBalloonCenter.x, y: leftBalloonCenter.y + balloonSize.height * 0.48),
-                    controlOffset: -28
+                StatsTuningSlider(title: "Side inset", value: $balloonSideInset, range: 0.00...0.10)
+                StatsTuningSlider(title: "Shoulder y", value: $balloonShoulderY, range: 0.34...0.50)
+                StatsTuningSlider(title: "Lower fullness", value: $balloonLowerFullness, range: 0.82...1.00)
+                StatsTuningSlider(title: "Neck width", value: $balloonNeckWidth, range: 0.12...0.38)
+                StatsTuningSlider(title: "Bottom y", value: $balloonBottomY, range: 0.94...1.00)
+            }
+            .padding(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            GeometryReader { proxy in
+                let size = proxy.size
+                let baseBalloonSize = CGSize(
+                    width: min(144, size.width * 0.35),
+                    height: min(158, size.width * 0.39)
                 )
-
-                statsBalloonString(
-                    from: rightHandPoint,
-                    to: CGPoint(x: rightBalloonCenter.x, y: rightBalloonCenter.y + balloonSize.height * 0.48),
-                    controlOffset: 28
+                let balloonSize = CGSize(
+                    width: baseBalloonSize.width * balloonScale,
+                    height: baseBalloonSize.height * balloonScale
                 )
+                let leftBalloonCenter = CGPoint(x: size.width * 0.27, y: size.height * 0.23)
+                let rightBalloonCenter = CGPoint(x: size.width * 0.73, y: size.height * (0.23 + rightBalloonYOffset))
+                let imageFrameSize = CGSize(
+                    width: size.width * 1.26,
+                    height: size.height * 1.02
+                )
+                let imageCenter = CGPoint(x: size.width * 0.5, y: size.height * 0.75)
+                let imageRect = renderedImageRect(
+                    sourceSize: silhouetteSourceSize,
+                    frameSize: imageFrameSize,
+                    center: imageCenter
+                )
+                let leftHandPoint = point(in: imageRect, normalized: leftHandAnchor)
+                let rightHandPoint = point(in: imageRect, normalized: rightHandAnchor)
 
-                Image("StatsFriendsSilhouette")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: imageFrameSize.width, height: imageFrameSize.height)
-                    .contentShape(Rectangle())
-                    .position(imageCenter)
-                    .gesture(peopleDragGesture)
+                ZStack {
+                    statsBalloonString(
+                        from: leftHandPoint,
+                        to: CGPoint(x: leftBalloonCenter.x, y: leftBalloonCenter.y + balloonSize.height * stringAttachmentY),
+                        controlOffset: -28
+                    )
 
-                StatsBalloonView(value: "\(closeFriendsCount)", title: "Close friends")
-                    .frame(width: balloonSize.width, height: balloonSize.height)
-                    .position(leftBalloonCenter)
+                    statsBalloonString(
+                        from: rightHandPoint,
+                        to: CGPoint(x: rightBalloonCenter.x, y: rightBalloonCenter.y + balloonSize.height * stringAttachmentY),
+                        controlOffset: 28
+                    )
 
-                StatsBalloonView(value: "\(plannedCheckInsPerMonth)", title: "Planned monthly")
-                    .frame(width: balloonSize.width, height: balloonSize.height)
-                    .position(rightBalloonCenter)
+                    Image("StatsFriendsSilhouette")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: imageFrameSize.width, height: imageFrameSize.height)
+                        .position(imageCenter)
+                        .allowsHitTesting(false)
 
-                VStack {
-                    Spacer()
+                    StatsBalloonView(
+                        value: "\(closeFriendsCount)",
+                        title: "Close friends",
+                        sideInset: balloonSideInset,
+                        shoulderY: balloonShoulderY,
+                        lowerFullness: balloonLowerFullness,
+                        neckWidth: balloonNeckWidth,
+                        bottomY: balloonBottomY
+                    )
+                        .frame(width: balloonSize.width, height: balloonSize.height)
+                        .position(leftBalloonCenter)
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("People")
-                                .font(.caption.weight(.semibold))
-
-                            Spacer()
-
-                            Button("Reset") {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                                    peopleOffset = .zero
-                                    peopleScale = 1.0
-                                    editableLeftHandAnchor = defaultLeftHandAnchor
-                                    editableRightHandAnchor = defaultRightHandAnchor
-                                }
-                            }
-                            .font(.caption.weight(.semibold))
-                            .buttonStyle(.borderless)
-                        }
-
-                        Slider(value: $peopleScale, in: 0.72...1.34)
-                            .tint(.goodFriendsAccent)
-
-                        StatsAnchorSlider(
-                            title: "Left x",
-                            value: $editableLeftHandAnchor.x
-                        )
-
-                        StatsAnchorSlider(
-                            title: "Left y",
-                            value: $editableLeftHandAnchor.y
-                        )
-
-                        StatsAnchorSlider(
-                            title: "Right x",
-                            value: $editableRightHandAnchor.x
-                        )
-
-                        StatsAnchorSlider(
-                            title: "Right y",
-                            value: $editableRightHandAnchor.y
-                        )
-                    }
-                    .padding(12)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .padding(.horizontal, 12)
+                    StatsBalloonView(
+                        value: "\(plannedCheckInsPerMonth)",
+                        title: "Planned monthly",
+                        sideInset: balloonSideInset,
+                        shoulderY: balloonShoulderY,
+                        lowerFullness: balloonLowerFullness,
+                        neckWidth: balloonNeckWidth,
+                        bottomY: balloonBottomY
+                    )
+                        .frame(width: balloonSize.width, height: balloonSize.height)
+                        .position(rightBalloonCenter)
                 }
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 575)
+        .frame(height: 610)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(closeFriendsCount) close friends, \(plannedCheckInsPerMonth) planned check-ins per month")
-    }
-
-    private var leftHandAnchor: CGPoint {
-        editableLeftHandAnchor
-    }
-
-    private var rightHandAnchor: CGPoint {
-        editableRightHandAnchor
-    }
-
-    private var peopleDragGesture: some Gesture {
-        DragGesture()
-            .updating($activePeopleDrag) { value, state, _ in
-                state = value.translation
-            }
-            .onEnded { value in
-                peopleOffset.width += value.translation.width
-                peopleOffset.height += value.translation.height
-            }
     }
 
     private func renderedImageRect(sourceSize: CGSize, frameSize: CGSize, center: CGPoint) -> CGRect {
@@ -1392,9 +1358,80 @@ private struct StatsFriendOverviewCard: View {
     }
 }
 
-private struct StatsAnchorSlider: View {
+private struct StatsBalloonView: View {
+    let value: String
+    let title: String
+    let sideInset: CGFloat
+    let shoulderY: CGFloat
+    let lowerFullness: CGFloat
+    let neckWidth: CGFloat
+    let bottomY: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let bodyHeight = size.height * 0.91
+            let knotSize = CGSize(width: size.width * 0.085, height: size.height * 0.065)
+
+            ZStack {
+                StatsBalloonBodyShape(
+                    sideInset: sideInset,
+                    shoulderY: shoulderY,
+                    lowerFullness: lowerFullness,
+                    neckWidth: neckWidth,
+                    bottomY: bottomY
+                )
+                    .fill(Color.goodFriendsAccent)
+                    .frame(width: size.width, height: bodyHeight)
+                    .position(x: size.width / 2, y: bodyHeight / 2)
+
+                StatsBalloonBodyShape(
+                    sideInset: sideInset,
+                    shoulderY: shoulderY,
+                    lowerFullness: lowerFullness,
+                    neckWidth: neckWidth,
+                    bottomY: bottomY
+                )
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                    .frame(width: size.width, height: bodyHeight)
+                    .position(x: size.width / 2, y: bodyHeight / 2)
+
+                StatsBalloonKnotShape()
+                    .fill(Color.goodFriendsAccent)
+                    .frame(width: knotSize.width, height: knotSize.height)
+                    .position(x: size.width / 2, y: size.height * 0.91)
+
+                StatsBalloonKnotShape()
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                    .frame(width: knotSize.width, height: knotSize.height)
+                    .position(x: size.width / 2, y: size.height * 0.91)
+
+                VStack(spacing: 2) {
+                    Text(value)
+                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.48)
+                        .monospacedDigit()
+
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(width: size.width, height: size.height * 0.72)
+                .position(x: size.width / 2, y: size.height * 0.43)
+            }
+        }
+    }
+}
+
+private struct StatsTuningSlider: View {
     let title: String
     @Binding var value: CGFloat
+    let range: ClosedRange<CGFloat>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -1409,41 +1446,92 @@ private struct StatsAnchorSlider: View {
                     .foregroundStyle(.secondary)
             }
 
-            Slider(value: $value, in: 0...1)
+            Slider(value: $value, in: range)
                 .tint(.goodFriendsAccent)
         }
     }
 }
 
-private struct StatsBalloonView: View {
-    let value: String
-    let title: String
+private struct StatsBalloonBodyShape: Shape {
+    let sideInset: CGFloat
+    let shoulderY: CGFloat
+    let lowerFullness: CGFloat
+    let neckWidth: CGFloat
+    let bottomY: CGFloat
 
-    var body: some View {
-        ZStack {
-            Ellipse()
-                .fill(Color.goodFriendsAccent)
-                .overlay {
-                    Ellipse()
-                        .stroke(.white.opacity(0.12), lineWidth: 1)
-                }
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let sideInset = min(max(sideInset, 0), 0.16)
+        let shoulderY = min(max(shoulderY, 0.25), 0.60)
+        let lowerFullness = min(max(lowerFullness, 0.70), 1.05)
+        let neckWidth = min(max(neckWidth, 0.08), 0.50)
+        let bottomY = min(max(bottomY, 0.88), 1.0)
+        let rightShoulder = CGPoint(
+            x: rect.minX + rect.width * (1 - sideInset),
+            y: rect.minY + rect.height * shoulderY
+        )
+        let rightNeck = CGPoint(
+            x: rect.midX + rect.width * neckWidth / 2,
+            y: rect.minY + rect.height * bottomY
+        )
+        let leftNeck = CGPoint(
+            x: rect.midX - rect.width * neckWidth / 2,
+            y: rect.minY + rect.height * bottomY
+        )
+        let leftShoulder = CGPoint(
+            x: rect.minX + rect.width * sideInset,
+            y: rect.minY + rect.height * shoulderY
+        )
 
-            VStack(spacing: 2) {
-                Text(value)
-                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.48)
-                    .monospacedDigit()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addCurve(
+            to: rightShoulder,
+            control1: CGPoint(x: rect.minX + rect.width * 0.76, y: rect.minY),
+            control2: CGPoint(x: rect.minX + rect.width * 1.02, y: rect.minY + rect.height * 0.17)
+        )
+        path.addCurve(
+            to: rightNeck,
+            control1: CGPoint(x: rect.minX + rect.width * lowerFullness, y: rect.minY + rect.height * 0.74),
+            control2: CGPoint(x: rect.minX + rect.width * 0.74, y: rect.minY + rect.height * 0.98)
+        )
+        path.addCurve(
+            to: leftNeck,
+            control1: CGPoint(x: rect.midX + rect.width * neckWidth * 0.12, y: rect.minY + rect.height),
+            control2: CGPoint(x: rect.midX - rect.width * neckWidth * 0.12, y: rect.minY + rect.height)
+        )
+        path.addCurve(
+            to: leftShoulder,
+            control1: CGPoint(x: rect.minX + rect.width * 0.26, y: rect.minY + rect.height * 0.98),
+            control2: CGPoint(x: rect.minX + rect.width * (1 - lowerFullness), y: rect.minY + rect.height * 0.74)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.midX, y: rect.minY),
+            control1: CGPoint(x: rect.minX - rect.width * 0.02, y: rect.minY + rect.height * 0.17),
+            control2: CGPoint(x: rect.minX + rect.width * 0.24, y: rect.minY)
+        )
 
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-        }
+        return path
+    }
+}
+
+private struct StatsBalloonKnotShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let bottomCornerRadius = rect.width * 0.12
+        let topPoint = CGPoint(x: rect.midX, y: rect.minY)
+        let bottomRight = CGPoint(x: rect.maxX, y: rect.maxY - bottomCornerRadius)
+        let rightBase = CGPoint(x: rect.maxX - bottomCornerRadius, y: rect.maxY)
+        let leftBase = CGPoint(x: rect.minX + bottomCornerRadius, y: rect.maxY)
+        let bottomLeft = CGPoint(x: rect.minX, y: rect.maxY - bottomCornerRadius)
+
+        path.move(to: topPoint)
+        path.addLine(to: bottomRight)
+        path.addQuadCurve(to: rightBase, control: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: leftBase)
+        path.addQuadCurve(to: bottomLeft, control: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: topPoint)
+
+        return path
     }
 }
 
