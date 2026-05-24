@@ -47,6 +47,16 @@ final class Friend {
         latestCheckIn?.date
     }
 
+    var latestCompletedCheckIn: CheckIn? {
+        checkIns
+            .filter { $0.kind == .checkedIn }
+            .max { $0.date < $1.date }
+    }
+
+    var latestCompletedCheckInDate: Date? {
+        latestCompletedCheckIn?.date
+    }
+
     var dueDate: Date {
         let baseDate = latestCheckInDate ?? createdAt
         return Calendar.current.date(byAdding: .day, value: thresholdDays, to: baseDate) ?? baseDate

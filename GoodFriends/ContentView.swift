@@ -1,42 +1,42 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var selectedTab: AppTab = .checkIn
-    @State private var tabTransitionDirection = 1
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            selectedTab.view
-                .id(selectedTab)
-                .transition(tabTransition)
+        TabView(selection: $selectedTab) {
+            CheckInTabView()
+                .tabItem {
+                    Label(AppTab.checkIn.title, systemImage: AppTab.checkIn.symbolName)
+                }
+                .tag(AppTab.checkIn)
 
-            GlassTabBar(selectedTab: $selectedTab, tabTransitionDirection: $tabTransitionDirection)
-                .padding(.horizontal, 18)
-                .padding(.bottom, 10)
-                .zIndex(10)
+            FriendsTabView()
+                .tabItem {
+                    Label(AppTab.friends.title, systemImage: AppTab.friends.symbolName)
+                }
+                .tag(AppTab.friends)
+
+            HistoryTabView()
+                .tabItem {
+                    Label(AppTab.history.title, systemImage: AppTab.history.symbolName)
+                }
+                .tag(AppTab.history)
         }
         .onAppear {
+            configureNativeTabBarAppearance()
             SampleData.seedIfNeeded(in: modelContext)
             NotificationScheduler.requestAuthorization()
         }
-        .tint(.goodFriendsAccent)
         .preferredColorScheme(.dark)
     }
 
-    private var tabTransition: AnyTransition {
-        if tabTransitionDirection >= 0 {
-            .asymmetric(
-                insertion: .move(edge: .trailing),
-                removal: .move(edge: .leading)
-            )
-        } else {
-            .asymmetric(
-                insertion: .move(edge: .leading),
-                removal: .move(edge: .trailing)
-            )
-        }
+    private func configureNativeTabBarAppearance() {
+        UITabBar.appearance().tintColor = .label
+        UITabBar.appearance().unselectedItemTintColor = .secondaryLabel
     }
 }
 
@@ -152,66 +152,6 @@ private enum AppTab: String, CaseIterable, Identifiable {
         }
     }
 
-    @ViewBuilder
-    var view: some View {
-        switch self {
-        case .checkIn:
-            CheckInTabView()
-        case .friends:
-            FriendsTabView()
-        case .history:
-            HistoryTabView()
-        }
-    }
-}
-
-private struct GlassTabBar: View {
-    @Binding var selectedTab: AppTab
-    @Binding var tabTransitionDirection: Int
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(AppTab.allCases) { tab in
-                Button {
-                    guard selectedTab != tab else {
-                        return
-                    }
-
-                    tabTransitionDirection = tab.order > selectedTab.order ? 1 : -1
-                    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                        selectedTab = tab
-                    }
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: tab.symbolName)
-                            .font(.system(size: 17, weight: .semibold))
-
-                        Text(tab.title)
-                            .font(.caption2.weight(.semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .foregroundStyle(selectedTab == tab ? Color.primary : Color.secondary)
-                    .background {
-                        if selectedTab == tab {
-                            Capsule()
-                                .fill(.white.opacity(0.32))
-                                .shadow(color: .white.opacity(0.35), radius: 8, x: 0, y: -2)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(tab.title)
-            }
-        }
-        .padding(6)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay {
-            Capsule()
-                .strokeBorder(.white.opacity(0.35), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 24, x: 0, y: 12)
-    }
 }
 
 private struct CheckInTabView: View {
@@ -318,7 +258,6 @@ private struct CheckInTabView: View {
                     }
                 }
                 .padding(20)
-                .padding(.bottom, 86)
             }
             .appNavigationImageHeader("GoodFriendsHeader", accessibilityLabel: "GOOD FRiENDS")
             .onChange(of: cardFriends.map(\.id)) { _, ids in
@@ -765,7 +704,7 @@ private struct CheckInPromptCard: View {
     }
 
     private var lastCheckInText: String {
-        guard let date = friend.latestCheckInDate else {
+        guard let date = friend.latestCompletedCheckInDate else {
             return "No check-ins yet"
         }
 
@@ -781,6 +720,7 @@ private struct CheckInDetailsView: View {
 
     @State private var checkInDate = Date()
     @State private var note = ""
+    @State private var showingFutureDateConfirmation = false
     @FocusState private var isNoteFocused: Bool
 
     var body: some View {
@@ -795,6 +735,7 @@ private struct CheckInDetailsView: View {
 
             Section("Check-in date") {
                 DatePicker("Date", selection: $checkInDate, displayedComponents: .date)
+                    .tint(.goodFriendsAccent)
             }
             .onTapGesture {
                 isNoteFocused = false
@@ -817,17 +758,42 @@ private struct CheckInDetailsView: View {
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button("Add", action: save)
+                Button("Add", action: confirmSave)
             }
+        }
+        .sheet(isPresented: $showingFutureDateConfirmation) {
+            FutureCheckInConfirmationView(
+                date: checkInDate,
+                onCancel: {
+                    showingFutureDateConfirmation = false
+                },
+                onAdd: {
+                    showingFutureDateConfirmation = false
+                    save()
+                }
+            )
+            .presentationDetents([.height(230)])
         }
     }
 
     private var lastCheckInText: String {
-        guard let date = friend.latestCheckInDate else {
+        guard let date = friend.latestCompletedCheckInDate else {
             return "Never"
         }
 
         return date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private var isFutureCheckInDate: Bool {
+        Calendar.current.startOfDay(for: checkInDate) > Calendar.current.startOfDay(for: .now)
+    }
+
+    private func confirmSave() {
+        if isFutureCheckInDate {
+            showingFutureDateConfirmation = true
+        } else {
+            save()
+        }
     }
 
     private func save() {
@@ -840,6 +806,41 @@ private struct CheckInDetailsView: View {
         NotificationScheduler.scheduleReminder(for: friend)
         onSave?()
         dismiss()
+    }
+}
+
+private struct FutureCheckInConfirmationView: View {
+    let date: Date
+    let onCancel: () -> Void
+    let onAdd: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 8) {
+                Text("Record future check-in?")
+                    .font(.headline)
+
+                Text("This check-in is dated \(date.formatted(date: .abbreviated, time: .omitted)).")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack(spacing: 12) {
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.gray.opacity(0.45))
+
+                Button("Add", action: onAdd)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.goodFriendsAccent)
+            }
+            .controlSize(.large)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -887,7 +888,6 @@ private struct FriendsTabView: View {
                     }
                 }
             }
-            .contentMargins(.bottom, 86, for: .scrollContent)
             .appNavigationImageHeader("FriendsHeader", accessibilityLabel: "FRiENDS")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -1033,7 +1033,6 @@ private struct HistoryTabView: View {
                     }
                 }
             }
-            .contentMargins(.bottom, 86, for: .scrollContent)
             .appNavigationImageHeader("HistoryHeader", accessibilityLabel: "HiSTORY")
         }
     }
@@ -1150,7 +1149,7 @@ private struct FriendRow: View {
     }
 
     private var subtitle: String {
-        if let latest = friend.latestCheckInDate {
+        if let latest = friend.latestCompletedCheckInDate {
             return "Last check-in \(latest.formatted(date: .abbreviated, time: .omitted))"
         }
         return "No check-ins yet"

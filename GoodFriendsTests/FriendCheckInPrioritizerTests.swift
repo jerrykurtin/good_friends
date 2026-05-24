@@ -68,6 +68,41 @@ final class FriendCheckInPrioritizerTests: XCTestCase {
         XCTAssertEqual(sorted.map(\.name), ["Epoch", "Recent"])
     }
 
+    func testLatestCompletedCheckInIgnoresSkippedCheckIns() {
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let checkedInDate = baseDate.addingTimeInterval(day)
+        let skippedDate = baseDate.addingTimeInterval(2 * day)
+        let friend = Friend(name: "Skipped Later", createdAt: baseDate)
+        friend.checkIns = [
+            CheckIn(date: checkedInDate, kind: .checkedIn, friend: friend),
+            CheckIn(date: skippedDate, kind: .skipped, friend: friend)
+        ]
+
+        XCTAssertEqual(friend.latestCompletedCheckInDate, checkedInDate)
+    }
+
+    func testSortedByDueDateStillConsidersSkippedCheckIns() {
+        let baseDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let checkedOnlyFriend = makeFriend(
+            name: "Checked Only",
+            createdAt: baseDate,
+            thresholdDays: 10,
+            checkInDates: [baseDate.addingTimeInterval(10 * day)]
+        )
+        let skippedRecentlyFriend = Friend(name: "Skipped Recently", thresholdDays: 10, createdAt: baseDate)
+        skippedRecentlyFriend.checkIns = [
+            CheckIn(date: baseDate.addingTimeInterval(day), kind: .checkedIn, friend: skippedRecentlyFriend),
+            CheckIn(date: baseDate.addingTimeInterval(20 * day), kind: .skipped, friend: skippedRecentlyFriend)
+        ]
+
+        let sorted = FriendCheckInPrioritizer.sortedByDueDate([
+            skippedRecentlyFriend,
+            checkedOnlyFriend
+        ])
+
+        XCTAssertEqual(sorted.map(\.name), ["Checked Only", "Skipped Recently"])
+    }
+
     func testTopFriendsByDueDateReturnsClosestFriendsWithoutFilteringDueStatus() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let dueFriend = makeDueFriend(name: "Due", daysOverdue: 1, now: now)
