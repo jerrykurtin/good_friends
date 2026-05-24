@@ -167,6 +167,7 @@ struct FriendFormView: View {
                 Button("Cancel") {
                     dismiss()
                 }
+                .tint(.secondary)
             }
 
             ToolbarItem(placement: .confirmationAction) {

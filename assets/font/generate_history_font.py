@@ -18,6 +18,7 @@ ASSETS = ROOT.parent
 SOURCE = ASSETS / "history-header-trimmed.png"
 GLYPHS = ["H", "i", "S", "T", "o", "R", "Y"]
 DISPLAY_WORD = "HiSToRY"
+FILE_STEMS = {"H": "H", "i": "lower-i", "S": "S", "T": "T", "o": "lower-o", "R": "R", "Y": "Y"}
 FONT_NAME = "GoodFriendsHistoryPOC"
 PNGS = ROOT / "pngs"
 VECTORS = ROOT / "vectors"
@@ -25,6 +26,7 @@ UNITS_PER_EM = 1000
 ASCENT = 850
 DESCENT = -150
 TRACE_THRESHOLD = 32
+REFERENCE_PIXEL_HEIGHT = 606
 
 
 def clean_generated_outputs() -> None:
@@ -139,17 +141,18 @@ def save_glyph_images(source: Image.Image) -> dict[str, Image.Image]:
     regions = glyph_regions(source.size)
     letters: dict[str, Image.Image] = {}
     for letter in GLYPHS:
+        stem = FILE_STEMS[letter]
         glyph = extract_glyph(source, regions[letter])
         glyph = keep_largest_components(glyph, 2 if letter == "i" else 1)
-        glyph.save(PNGS / f"{letter}.source.png")
+        glyph.save(PNGS / f"{stem}.source.png")
 
         alpha_mask = glyph.getchannel("A")
         ink = alpha_mask.point(lambda p: 255 if p > TRACE_THRESHOLD else 0, mode="L")
-        ink.save(PNGS / f"{letter}.png")
+        ink.save(PNGS / f"{stem}.png")
 
         # Potrace wants a 1-bit bitmap. In PBM, black pixels are traced.
         pbm = alpha_mask.point(lambda p: 0 if p > TRACE_THRESHOLD else 255, mode="1")
-        pbm.save(PNGS / f"{letter}.pbm")
+        pbm.save(PNGS / f"{stem}.pbm")
         letters[letter] = glyph
     return letters
 
@@ -157,13 +160,14 @@ def save_glyph_images(source: Image.Image) -> dict[str, Image.Image]:
 def trace_letters() -> None:
     VECTORS.mkdir(exist_ok=True)
     for letter in GLYPHS:
+        stem = FILE_STEMS[letter]
         subprocess.run(
             [
                 "potrace",
-                str(PNGS / f"{letter}.pbm"),
+                str(PNGS / f"{stem}.pbm"),
                 "--svg",
                 "--output",
-                str(VECTORS / f"{letter}.svg"),
+                str(VECTORS / f"{stem}.svg"),
                 "--turdsize",
                 "18",
                 "--alphamax",
@@ -196,7 +200,7 @@ def glyph_from_svg(svg_path: Path):
     width, height = svg_size(svg_path)
     pen = TTGlyphPen(None)
     side_bearing = 55
-    scale = ASCENT / height
+    scale = ASCENT / REFERENCE_PIXEL_HEIGHT
 
     # Potrace's SVG path coordinates are 10x the source pixels. Mapping that
     # raw coordinate space directly into font units keeps y-up glyph outlines.
@@ -222,7 +226,7 @@ def build_font(letters: dict[str, Image.Image]) -> None:
     cmap = {32: "space"}
 
     for letter in GLYPHS:
-        glyph, advance = glyph_from_svg(VECTORS / f"{letter}.svg")
+        glyph, advance = glyph_from_svg(VECTORS / f"{FILE_STEMS[letter]}.svg")
         glyphs[letter] = glyph
         metrics[letter] = (advance, 0)
         for character in {letter, letter.upper(), letter.lower()}:

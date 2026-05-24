@@ -2,7 +2,7 @@
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN"
  "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">
 <svg version="1.0" xmlns="http://www.w3.org/2000/svg"
- width="312.000000pt" height="593.000000pt" viewBox="0 0 312.000000 593.000000"
+ width="311.000000pt" height="593.000000pt" viewBox="0 0 311.000000 593.000000"
  preserveAspectRatio="xMidYMid meet">
 <metadata>
 Created by potrace 1.16, written by Peter Selinger 2001-2019
@@ -20,8 +20,5 @@ fill="#000000" stroke="none">
 -673 494 -256 145 -356 213 -428 288 -138 146 -150 312 -30 411 76 63 160 65
 308 8 175 -68 275 -72 395 -15 175 84 293 307 307 583 24 474 -291 836 -808
 929 -110 20 -254 26 -359 16z"/>
-<path d="M2707 5601 c-151 -209 -171 -494 -50 -710 39 -70 117 -156 133 -146
-6 4 9 1 8 -7 -2 -7 5 -12 14 -12 10 1 16 -3 15 -9 -2 -12 127 -81 141 -75 9 3
--208 991 -220 1003 -3 3 -22 -17 -41 -44z"/>
 </g>
 </svg>

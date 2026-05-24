@@ -755,8 +755,7 @@ private struct CheckInDetailsView: View {
             }
 
             Section("Check-in date") {
-                DatePicker("Date", selection: $checkInDate, displayedComponents: .date)
-                    .tint(.goodFriendsAccent)
+                AccentDatePicker("Date", selection: $checkInDate)
             }
             .onTapGesture {
                 isNoteFocused = false
@@ -776,6 +775,7 @@ private struct CheckInDetailsView: View {
                 Button("Cancel") {
                     dismiss()
                 }
+                .tint(.secondary)
             }
 
             ToolbarItem(placement: .confirmationAction) {
@@ -1099,7 +1099,7 @@ struct HistoryDetailView: View {
                 }
 
                 LabeledContent("Friend", value: checkIn.friend?.name ?? "Deleted Friend")
-                DatePicker("Date", selection: checkInDate, displayedComponents: .date)
+                AccentDatePicker("Date", selection: checkInDate)
             }
             .onTapGesture {
                 isNoteFocused = false
@@ -1174,6 +1174,38 @@ private struct FriendRow: View {
             return "Last check-in \(latest.formatted(date: .abbreviated, time: .omitted))"
         }
         return "No check-ins yet"
+    }
+}
+
+private struct AccentDatePicker: View {
+    let title: LocalizedStringKey
+    @Binding var selection: Date
+
+    init(_ title: LocalizedStringKey, selection: Binding<Date>) {
+        self.title = title
+        self._selection = selection
+    }
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+
+            DatePicker("", selection: $selection, displayedComponents: .date)
+                .labelsHidden()
+                .tint(.goodFriendsAccent)
+                .opacity(0.02)
+                .overlay(alignment: .trailing) {
+                    HStack(spacing: 6) {
+                        Text(selection.formatted(date: .abbreviated, time: .omitted))
+                        Image(systemName: "calendar")
+                            .imageScale(.small)
+                    }
+                    .foregroundStyle(Color.goodFriendsAccent)
+                    .allowsHitTesting(false)
+                }
+                .contentShape(Rectangle())
+        }
     }
 }
 
