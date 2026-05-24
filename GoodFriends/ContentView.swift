@@ -946,6 +946,7 @@ private struct GroupSectionHeader: View {
     let onSelectColor: (String) -> Void
 
     @State private var showingColorPicker = false
+    @State private var colorPickerButtonFrame: CGRect = .zero
 
     var body: some View {
         HStack {
@@ -969,8 +970,20 @@ private struct GroupSectionHeader: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear
+                        .preference(
+                            key: ColorPickerButtonFramePreferenceKey.self,
+                            value: proxy.frame(in: .global)
+                        )
+                }
+            }
+            .onPreferenceChange(ColorPickerButtonFramePreferenceKey.self) { frame in
+                colorPickerButtonFrame = frame
+            }
             .accessibilityLabel("Change \(name) color")
-            .popover(isPresented: $showingColorPicker, arrowEdge: .top) {
+            .popover(isPresented: $showingColorPicker, arrowEdge: colorPickerArrowEdge) {
                 GroupColorPickerPopover(
                     selectedColorHex: colorHex,
                     onSelectColor: { colorHex in
@@ -983,45 +996,71 @@ private struct GroupSectionHeader: View {
         }
         .textCase(nil)
     }
+
+    private var colorPickerArrowEdge: Edge {
+        guard colorPickerButtonFrame != .zero else {
+            return .top
+        }
+
+        let availableBelow = UIScreen.main.bounds.height - colorPickerButtonFrame.maxY
+        let availableAbove = colorPickerButtonFrame.minY
+        let preferredHeight = GroupColorPickerPopover.preferredHeight
+
+        return availableBelow < preferredHeight && availableAbove > availableBelow ? .bottom : .top
+    }
+}
+
+private struct ColorPickerButtonFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
 }
 
 private struct GroupColorPickerPopover: View {
+    static let maxHeight: CGFloat = 320
+    static let preferredHeight: CGFloat = min(maxHeight, CGFloat(GroupColorPalette.sortedOptions.count) * 44 + 20)
+
     let selectedColorHex: String
     let onSelectColor: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(GroupColorPalette.sortedOptions, id: \.name) { option in
-                let isSelected = option.hex.caseInsensitiveCompare(selectedColorHex) == .orderedSame
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(GroupColorPalette.sortedOptions, id: \.name) { option in
+                    let isSelected = option.hex.caseInsensitiveCompare(selectedColorHex) == .orderedSame
 
-                Button {
-                    onSelectColor(option.hex)
-                } label: {
-                    HStack(spacing: 12) {
-                        Circle()
-                            .fill(Color(hex: option.hex))
-                            .frame(width: 14, height: 14)
+                    Button {
+                        onSelectColor(option.hex)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(Color(hex: option.hex))
+                                .frame(width: 14, height: 14)
 
-                        Text(option.name)
-                            .foregroundStyle(.primary)
+                            Text(option.name)
+                                .foregroundStyle(.primary)
 
-                        Spacer(minLength: 18)
+                            Spacer(minLength: 18)
 
-                        if isSelected {
-                            Image(systemName: "checkmark")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.secondary)
+                            if isSelected {
+                                Image(systemName: "checkmark")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .frame(minWidth: 170, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
                     }
-                    .frame(minWidth: 170, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
+            .padding(.vertical, 10)
         }
-        .padding(.vertical, 10)
+        .frame(maxHeight: Self.maxHeight)
         .presentationCompactAdaptation(.popover)
     }
 }
@@ -1187,24 +1226,38 @@ private struct AccentDatePicker: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             Text(title)
-            Spacer()
+                .lineLimit(1)
+                .layoutPriority(1)
 
-            DatePicker("", selection: $selection, displayedComponents: .date)
-                .labelsHidden()
-                .tint(.goodFriendsAccent)
-                .opacity(0.02)
-                .overlay(alignment: .trailing) {
+            ZStack(alignment: .trailing) {
+                DatePicker("", selection: $selection, displayedComponents: .date)
+                    .labelsHidden()
+                    .tint(.goodFriendsAccent)
+                    .opacity(0.02)
+
+                ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
                         Text(selection.formatted(date: .abbreviated, time: .omitted))
                         Image(systemName: "calendar")
                             .imageScale(.small)
                     }
-                    .foregroundStyle(Color.goodFriendsAccent)
-                    .allowsHitTesting(false)
+                    .lineLimit(1)
+
+                    HStack(spacing: 6) {
+                        Text(selection.formatted(.dateTime.month().day().year(.twoDigits)))
+                        Image(systemName: "calendar")
+                            .imageScale(.small)
+                    }
+                    .lineLimit(1)
                 }
-                .contentShape(Rectangle())
+                .foregroundStyle(Color.goodFriendsAccent)
+                .allowsHitTesting(false)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .contentShape(Rectangle())
         }
     }
 }
