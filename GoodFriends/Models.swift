@@ -5,6 +5,7 @@ import SwiftData
 final class Friend {
     @Attribute(.unique) var id: UUID
     var name: String
+    var lastName: String = ""
     var city: String
     // Groups are deliberately stored as lightweight friend fields instead of a separate model.
     // If groups need richer data later, this should become its own model.
@@ -19,7 +20,8 @@ final class Friend {
 
     init(
         id: UUID = UUID(),
-        name: String,
+        firstName: String,
+        lastName: String = "",
         city: String = "",
         groupName: String = "Friends",
         groupColorHex: String? = nil,
@@ -29,7 +31,8 @@ final class Friend {
         checkIns: [CheckIn] = []
     ) {
         self.id = id
-        self.name = name
+        self.name = firstName
+        self.lastName = lastName
         self.city = city
         self.groupName = groupName
         self.groupColorHex = groupColorHex
@@ -77,6 +80,18 @@ final class Friend {
         }
 
         return groupColorHex
+    }
+
+    var displayName: String {
+        [firstName, lastName]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    var firstName: String {
+        get { name }
+        set { name = newValue }
     }
 }
 

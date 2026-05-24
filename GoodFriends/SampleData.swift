@@ -18,7 +18,7 @@ enum SampleData {
 
         for sampleFriend in friends {
             let friend = Friend(
-                name: sampleFriend.name,
+                firstName: sampleFriend.name,
                 city: sampleFriend.city,
                 groupName: sampleFriend.groupName,
                 groupColorHex: GroupColorPalette.defaultHex(for: sampleFriend.groupName),

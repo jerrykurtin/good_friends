@@ -83,7 +83,7 @@ struct FriendDetailView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
-        .navigationTitle(friend.name)
+        .navigationTitle(friend.displayName)
         .toolbar {
             Button("Edit") {
                 showingEditForm = true

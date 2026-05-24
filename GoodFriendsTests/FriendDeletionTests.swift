@@ -7,12 +7,12 @@ final class FriendDeletionTests: XCTestCase {
     func testDeletingFriendRemovesTheirCheckIns() throws {
         let container = try makeContainer()
         let modelContext = container.mainContext
-        let friend = Friend(name: "Maya", groupName: "College")
+        let friend = Friend(firstName: "Maya", groupName: "College")
+        modelContext.insert(friend)
+
         let firstCheckIn = CheckIn(date: .now, note: "Coffee", friend: friend)
         let secondCheckIn = CheckIn(date: .now.addingTimeInterval(-86_400), note: "Call", friend: friend)
-
         friend.checkIns.append(contentsOf: [firstCheckIn, secondCheckIn])
-        modelContext.insert(friend)
         modelContext.insert(firstCheckIn)
         modelContext.insert(secondCheckIn)
         try modelContext.save()
@@ -29,15 +29,15 @@ final class FriendDeletionTests: XCTestCase {
     func testDeletingOneFriendKeepsOtherFriendsCheckIns() throws {
         let container = try makeContainer()
         let modelContext = container.mainContext
-        let deletedFriend = Friend(name: "Maya", groupName: "College")
-        let keptFriend = Friend(name: "Noah", groupName: "Work")
-        let deletedCheckIn = CheckIn(date: .now, note: "Coffee", friend: deletedFriend)
-        let keptCheckIn = CheckIn(date: .now, note: "Dinner", friend: keptFriend)
-
-        deletedFriend.checkIns.append(deletedCheckIn)
-        keptFriend.checkIns.append(keptCheckIn)
+        let deletedFriend = Friend(firstName: "Maya", groupName: "College")
+        let keptFriend = Friend(firstName: "Noah", groupName: "Work")
         modelContext.insert(deletedFriend)
         modelContext.insert(keptFriend)
+
+        let deletedCheckIn = CheckIn(date: .now, note: "Coffee", friend: deletedFriend)
+        let keptCheckIn = CheckIn(date: .now, note: "Dinner", friend: keptFriend)
+        deletedFriend.checkIns.append(deletedCheckIn)
+        keptFriend.checkIns.append(keptCheckIn)
         modelContext.insert(deletedCheckIn)
         modelContext.insert(keptCheckIn)
         try modelContext.save()
@@ -46,7 +46,7 @@ final class FriendDeletionTests: XCTestCase {
 
         let remainingFriends = try modelContext.fetch(FetchDescriptor<Friend>())
         let remainingCheckIns = try modelContext.fetch(FetchDescriptor<CheckIn>())
-        XCTAssertEqual(remainingFriends.map(\.name), ["Noah"])
+        XCTAssertEqual(remainingFriends.map(\.displayName), ["Noah"])
         XCTAssertEqual(remainingCheckIns.map(\.note), ["Dinner"])
     }
 

@@ -21,6 +21,16 @@
 		022222222222222222222112 /* FriendCheckInPrioritizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 022222222222222222222102 /* FriendCheckInPrioritizerTests.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		022222222222222222222602 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 011111111111111111111601 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 011111111111111111111401;
+			remoteInfo = GoodFriends;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		011111111111111111111001 /* GoodFriends.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GoodFriends.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		011111111111111111111101 /* GoodFriendsApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoodFriendsApp.swift; sourceTree = "<group>"; };
@@ -37,16 +47,6 @@
 		022222222222222222222101 /* FriendDeletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendDeletionTests.swift; sourceTree = "<group>"; };
 		022222222222222222222102 /* FriendCheckInPrioritizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendCheckInPrioritizerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXContainerItemProxy section */
-		022222222222222222222602 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 011111111111111111111601 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 011111111111111111111401;
-			remoteInfo = GoodFriends;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		011111111111111111111201 /* Frameworks */ = {
@@ -378,7 +378,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.GoodFriends;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jerry.good-friends";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -410,7 +410,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.GoodFriends;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.jerry.good-friends";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;

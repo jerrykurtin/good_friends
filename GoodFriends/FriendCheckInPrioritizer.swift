@@ -7,7 +7,7 @@ enum FriendCheckInPrioritizer {
                 return lhs.dueDate < rhs.dueDate
             }
 
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
     }
 

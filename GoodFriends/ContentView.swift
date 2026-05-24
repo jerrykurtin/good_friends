@@ -25,6 +25,12 @@ struct ContentView: View {
                     Label(AppTab.history.title, systemImage: AppTab.history.symbolName)
                 }
                 .tag(AppTab.history)
+
+            StatsTabView()
+                .tabItem {
+                    Label(AppTab.stats.title, systemImage: AppTab.stats.symbolName)
+                }
+                .tag(AppTab.stats)
         }
         .onAppear {
             configureNativeTabBarAppearance()
@@ -146,6 +152,7 @@ private enum AppTab: String, CaseIterable, Identifiable {
     case checkIn
     case friends
     case history
+    case stats
 
     var id: Self { self }
 
@@ -154,6 +161,7 @@ private enum AppTab: String, CaseIterable, Identifiable {
         case .checkIn: 0
         case .friends: 1
         case .history: 2
+        case .stats: 3
         }
     }
 
@@ -162,6 +170,7 @@ private enum AppTab: String, CaseIterable, Identifiable {
         case .checkIn: "Check In"
         case .friends: "Friends"
         case .history: "History"
+        case .stats: "Stats"
         }
     }
 
@@ -170,6 +179,7 @@ private enum AppTab: String, CaseIterable, Identifiable {
         case .checkIn: "bubble.left.and.bubble.right"
         case .friends: "person.2"
         case .history: "clock.arrow.circlepath"
+        case .stats: "chart.bar"
         }
     }
 
@@ -645,7 +655,7 @@ private struct CheckInPromptCard: View {
 
     private var frontContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(friend.name)
+            Text(friend.displayName)
                 .font(.title2.weight(.semibold))
 
             Text(lastCheckInText)
@@ -658,7 +668,7 @@ private struct CheckInPromptCard: View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("\(friend.name) - \(friend.groupName)")
+                    Text("\(friend.displayName) - \(friend.groupName)")
                         .font(.title3.weight(.semibold))
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -747,7 +757,7 @@ private struct CheckInDetailsView: View {
     var body: some View {
         Form {
             Section("Friend") {
-                LabeledContent("Name", value: friend.name)
+                LabeledContent("Name", value: friend.displayName)
                 LabeledContent("Last check-in", value: lastCheckInText)
             }
             .onTapGesture {
@@ -873,7 +883,7 @@ private struct FriendsTabView: View {
 
     private var groupedFriends: [(name: String, friends: [Friend])] {
         Dictionary(grouping: friends) { $0.groupName.trimmedOrFallback("Friends") }
-            .map { ($0.key, $0.value.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) }
+            .map { ($0.key, $0.value.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }) }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
@@ -1108,6 +1118,443 @@ private struct HistoryTabView: View {
     }
 }
 
+private struct StatsTabView: View {
+    @Query(sort: \Friend.name) private var friends: [Friend]
+    @Query(sort: \CheckIn.date, order: .reverse) private var checkIns: [CheckIn]
+
+    private let calendar = Calendar.current
+
+    private var completedCheckIns: [CheckIn] {
+        checkIns.filter { $0.kind == .checkedIn }
+    }
+
+    private var plannedCheckInsPerMonth: Int {
+        let planned = friends.reduce(0.0) { total, friend in
+            let threshold = max(friend.thresholdDays, 1)
+            return total + 30.4375 / Double(threshold)
+        }
+
+        return Int(planned.rounded())
+    }
+
+    private var checkInsThisWeek: Int {
+        completedCheckIns(in: .weekOfYear)
+    }
+
+    private var checkInsThisYear: Int {
+        completedCheckIns(in: .year)
+    }
+
+    private var allTimeCheckIns: Int {
+        completedCheckIns.count
+    }
+
+    private var monthlyCounts: [MonthlyCheckInCount] {
+        let currentMonth = monthStart(for: .now)
+
+        return (0..<6).reversed().compactMap { offset in
+            guard let month = calendar.date(byAdding: .month, value: -offset, to: currentMonth),
+                  let interval = calendar.dateInterval(of: .month, for: month) else {
+                return nil
+            }
+
+            let count = completedCheckIns.filter { interval.contains($0.date) }.count
+            return MonthlyCheckInCount(month: month, count: count)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    StatsFriendOverviewCard(
+                        closeFriendsCount: friends.count,
+                        plannedCheckInsPerMonth: plannedCheckInsPerMonth
+                    )
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Check-in History")
+                            .font(.headline)
+
+                        HStack(spacing: 12) {
+                            StatsCompactCard(title: "This week", value: "\(checkInsThisWeek)")
+                            StatsCompactCard(title: "This year", value: "\(checkInsThisYear)")
+                            StatsCompactCard(title: "All-time", value: "\(allTimeCheckIns)")
+                        }
+
+                        StatsMonthlyChart(monthlyCounts: monthlyCounts)
+                    }
+                }
+                .padding(20)
+            }
+            .background(Color(.systemGroupedBackground))
+            .appNavigationHeader("Stats")
+        }
+    }
+
+    private func monthStart(for date: Date) -> Date {
+        calendar.dateInterval(of: .month, for: date)?.start ?? date
+    }
+
+    private func completedCheckIns(in component: Calendar.Component) -> Int {
+        guard let interval = calendar.dateInterval(of: component, for: .now) else {
+            return 0
+        }
+
+        return completedCheckIns.filter { interval.contains($0.date) }.count
+    }
+}
+
+private struct StatsFriendOverviewCard: View {
+    let closeFriendsCount: Int
+    let plannedCheckInsPerMonth: Int
+
+    @State private var peopleOffset: CGSize = .zero
+    @State private var peopleScale = 1.0
+    @State private var editableLeftHandAnchor = CGPoint(x: 0.099, y: 0.465)
+    @State private var editableRightHandAnchor = CGPoint(x: 0.901, y: 0.465)
+    @GestureState private var activePeopleDrag: CGSize = .zero
+
+    // Tune these normalized points to move the strings' hand anchors.
+    // x and y are measured from the silhouette image's top-left corner, from 0...1.
+    private let defaultLeftHandAnchor = CGPoint(x: 0.08, y: 0.60)
+    private let defaultRightHandAnchor = CGPoint(x: 0.92, y: 0.60)
+    private let silhouetteSourceSize = CGSize(width: 853, height: 1844)
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let balloonSize = CGSize(
+                width: min(126, size.width * 0.30),
+                height: min(140, size.width * 0.34)
+            )
+            let leftBalloonCenter = CGPoint(x: size.width * 0.27, y: size.height * 0.24)
+            let rightBalloonCenter = CGPoint(x: size.width * 0.73, y: size.height * 0.24)
+            let imageFrameSize = CGSize(
+                width: size.width * 1.26 * peopleScale,
+                height: size.height * 1.02 * peopleScale
+            )
+            let imageCenter = CGPoint(
+                x: size.width * 0.5 + peopleOffset.width + activePeopleDrag.width,
+                y: size.height * 0.75 + peopleOffset.height + activePeopleDrag.height
+            )
+            let imageRect = renderedImageRect(
+                sourceSize: silhouetteSourceSize,
+                frameSize: imageFrameSize,
+                center: imageCenter
+            )
+            let leftHandPoint = point(in: imageRect, normalized: leftHandAnchor)
+            let rightHandPoint = point(in: imageRect, normalized: rightHandAnchor)
+
+            ZStack {
+                statsBalloonString(
+                    from: leftHandPoint,
+                    to: CGPoint(x: leftBalloonCenter.x, y: leftBalloonCenter.y + balloonSize.height * 0.48),
+                    controlOffset: -28
+                )
+
+                statsBalloonString(
+                    from: rightHandPoint,
+                    to: CGPoint(x: rightBalloonCenter.x, y: rightBalloonCenter.y + balloonSize.height * 0.48),
+                    controlOffset: 28
+                )
+
+                Image("StatsFriendsSilhouette")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: imageFrameSize.width, height: imageFrameSize.height)
+                    .contentShape(Rectangle())
+                    .position(imageCenter)
+                    .gesture(peopleDragGesture)
+
+                StatsBalloonView(value: "\(closeFriendsCount)", title: "Close friends")
+                    .frame(width: balloonSize.width, height: balloonSize.height)
+                    .position(leftBalloonCenter)
+
+                StatsBalloonView(value: "\(plannedCheckInsPerMonth)", title: "Planned monthly")
+                    .frame(width: balloonSize.width, height: balloonSize.height)
+                    .position(rightBalloonCenter)
+
+                VStack {
+                    Spacer()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("People")
+                                .font(.caption.weight(.semibold))
+
+                            Spacer()
+
+                            Button("Reset") {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                    peopleOffset = .zero
+                                    peopleScale = 1.0
+                                    editableLeftHandAnchor = defaultLeftHandAnchor
+                                    editableRightHandAnchor = defaultRightHandAnchor
+                                }
+                            }
+                            .font(.caption.weight(.semibold))
+                            .buttonStyle(.borderless)
+                        }
+
+                        Slider(value: $peopleScale, in: 0.72...1.34)
+                            .tint(.goodFriendsAccent)
+
+                        StatsAnchorSlider(
+                            title: "Left x",
+                            value: $editableLeftHandAnchor.x
+                        )
+
+                        StatsAnchorSlider(
+                            title: "Left y",
+                            value: $editableLeftHandAnchor.y
+                        )
+
+                        StatsAnchorSlider(
+                            title: "Right x",
+                            value: $editableRightHandAnchor.x
+                        )
+
+                        StatsAnchorSlider(
+                            title: "Right y",
+                            value: $editableRightHandAnchor.y
+                        )
+                    }
+                    .padding(12)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(.horizontal, 12)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 575)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(closeFriendsCount) close friends, \(plannedCheckInsPerMonth) planned check-ins per month")
+    }
+
+    private var leftHandAnchor: CGPoint {
+        editableLeftHandAnchor
+    }
+
+    private var rightHandAnchor: CGPoint {
+        editableRightHandAnchor
+    }
+
+    private var peopleDragGesture: some Gesture {
+        DragGesture()
+            .updating($activePeopleDrag) { value, state, _ in
+                state = value.translation
+            }
+            .onEnded { value in
+                peopleOffset.width += value.translation.width
+                peopleOffset.height += value.translation.height
+            }
+    }
+
+    private func renderedImageRect(sourceSize: CGSize, frameSize: CGSize, center: CGPoint) -> CGRect {
+        let sourceAspectRatio = sourceSize.width / sourceSize.height
+        let frameAspectRatio = frameSize.width / frameSize.height
+        let renderedSize: CGSize
+
+        if sourceAspectRatio > frameAspectRatio {
+            renderedSize = CGSize(width: frameSize.width, height: frameSize.width / sourceAspectRatio)
+        } else {
+            renderedSize = CGSize(width: frameSize.height * sourceAspectRatio, height: frameSize.height)
+        }
+
+        return CGRect(
+            x: center.x - renderedSize.width / 2,
+            y: center.y - renderedSize.height / 2,
+            width: renderedSize.width,
+            height: renderedSize.height
+        )
+    }
+
+    private func point(in rect: CGRect, normalized point: CGPoint) -> CGPoint {
+        CGPoint(
+            x: rect.minX + rect.width * point.x,
+            y: rect.minY + rect.height * point.y
+        )
+    }
+
+    private func statsBalloonString(from start: CGPoint, to end: CGPoint, controlOffset: CGFloat) -> some View {
+        Path { path in
+            path.move(to: start)
+            path.addQuadCurve(
+                to: end,
+                control: CGPoint(
+                    x: (start.x + end.x) / 2 + controlOffset,
+                    y: (start.y + end.y) / 2
+                )
+            )
+        }
+        .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+    }
+}
+
+private struct StatsAnchorSlider: View {
+    let title: String
+    @Binding var value: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+
+                Spacer()
+
+                Text(value, format: .number.precision(.fractionLength(3)))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Slider(value: $value, in: 0...1)
+                .tint(.goodFriendsAccent)
+        }
+    }
+}
+
+private struct StatsBalloonView: View {
+    let value: String
+    let title: String
+
+    var body: some View {
+        ZStack {
+            Ellipse()
+                .fill(Color.goodFriendsAccent)
+                .overlay {
+                    Ellipse()
+                        .stroke(.white.opacity(0.12), lineWidth: 1)
+                }
+
+            VStack(spacing: 2) {
+                Text(value)
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.48)
+                    .monospacedDigit()
+
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+        }
+    }
+}
+
+private struct StatsCompactCard: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(value)
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .monospacedDigit()
+
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, minHeight: 86, alignment: .leading)
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct StatsMonthlyChart: View {
+    let monthlyCounts: [MonthlyCheckInCount]
+
+    private var maxCount: Int {
+        max(monthlyCounts.map(\.count).max() ?? 0, 1)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Label("Monthly check-ins", systemImage: "chart.bar.xaxis")
+                    .font(.headline)
+
+                Spacer()
+            }
+
+            HStack(alignment: .bottom, spacing: 10) {
+                ForEach(monthlyCounts) { month in
+                    VStack(spacing: 8) {
+                        Text("\(month.count)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .frame(height: 14)
+
+                        GeometryReader { proxy in
+                            VStack {
+                                Spacer(minLength: 0)
+
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(barColor(for: month))
+                                    .frame(height: barHeight(for: month, availableHeight: proxy.size.height))
+                            }
+                        }
+                        .frame(height: 150)
+
+                        Text(month.label)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(month.accessibilityLabel), \(month.count) check-ins")
+                }
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func barHeight(for month: MonthlyCheckInCount, availableHeight: CGFloat) -> CGFloat {
+        guard month.count > 0 else {
+            return 4
+        }
+
+        return max(10, availableHeight * CGFloat(month.count) / CGFloat(maxCount))
+    }
+
+    private func barColor(for month: MonthlyCheckInCount) -> Color {
+        month.isCurrentMonth ? .goodFriendsAccent : .secondary.opacity(0.55)
+    }
+}
+
+private struct MonthlyCheckInCount: Identifiable {
+    let month: Date
+    let count: Int
+
+    var id: Date { month }
+
+    var label: String {
+        month.formatted(.dateTime.month(.abbreviated))
+    }
+
+    var accessibilityLabel: String {
+        month.formatted(.dateTime.month(.wide).year())
+    }
+
+    var isCurrentMonth: Bool {
+        Calendar.current.isDate(month, equalTo: .now, toGranularity: .month)
+    }
+}
+
 struct HistoryDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Bindable var checkIn: CheckIn
@@ -1137,7 +1584,7 @@ struct HistoryDetailView: View {
                     }
                 }
 
-                LabeledContent("Friend", value: checkIn.friend?.name ?? "Deleted Friend")
+                LabeledContent("Friend", value: checkIn.friend?.displayName ?? "Deleted Friend")
                 AccentDatePicker("Date", selection: checkInDate)
             }
             .onTapGesture {
@@ -1172,7 +1619,7 @@ struct HistoryRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(checkIn.kind.title) - \(checkIn.friend?.name ?? "Deleted Friend")")
+                Text("\(checkIn.kind.title) - \(checkIn.friend?.displayName ?? "Deleted Friend")")
                     .font(.body)
                 Text(checkIn.date.formatted(date: .abbreviated, time: .omitted))
                     .font(.caption)
@@ -1192,7 +1639,7 @@ private struct FriendRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
-                Text(friend.name)
+                Text(friend.displayName)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)

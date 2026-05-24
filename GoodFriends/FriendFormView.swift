@@ -10,7 +10,8 @@ struct FriendFormView: View {
     private let onDelete: (() -> Void)?
     private static let newGroupOption = "__new_group__"
 
-    @State private var name: String
+    @State private var firstName: String
+    @State private var lastName: String
     @State private var city: String
     @State private var groupName: String
     @State private var isAddingNewGroup: Bool
@@ -31,7 +32,8 @@ struct FriendFormView: View {
 
         self.friend = friend
         self.onDelete = onDelete
-        _name = State(initialValue: friend?.name ?? "")
+        _firstName = State(initialValue: friend?.firstName ?? "")
+        _lastName = State(initialValue: friend?.lastName ?? "")
         _city = State(initialValue: friend?.city ?? "")
         _groupName = State(initialValue: friend?.groupName ?? "")
         _isAddingNewGroup = State(initialValue: false)
@@ -44,7 +46,8 @@ struct FriendFormView: View {
     var body: some View {
         Form {
             Section("Friend") {
-                TextField("Name", text: $name)
+                TextField("First name", text: $firstName)
+                TextField("Last name", text: $lastName)
                 TextField("City", text: $city)
 
                 if isAddingNewGroup || availableGroupNames.isEmpty {
@@ -178,7 +181,7 @@ struct FriendFormView: View {
     }
 
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && resolvedThresholdDays != nil
+        !firstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && resolvedThresholdDays != nil
     }
 
     private var availableGroupNames: [String] {
@@ -207,7 +210,8 @@ struct FriendFormView: View {
     }
 
     private func save() {
-        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanLastName = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanGroupName = groupName == Self.newGroupOption ? "" : groupName.trimmingCharacters(in: .whitespacesAndNewlines)
         let savedGroupName = cleanGroupName.isEmpty ? "Friends" : cleanGroupName
         let savedGroupColorHex = colorHex(for: savedGroupName)
@@ -215,7 +219,8 @@ struct FriendFormView: View {
 
         let savedFriend: Friend
         if let friend {
-            friend.name = cleanName
+            friend.firstName = cleanFirstName
+            friend.lastName = cleanLastName
             friend.city = city.trimmingCharacters(in: .whitespacesAndNewlines)
             friend.groupName = savedGroupName
             friend.groupColorHex = savedGroupColorHex
@@ -224,7 +229,8 @@ struct FriendFormView: View {
             savedFriend = friend
         } else {
             let friend = Friend(
-                name: cleanName,
+                firstName: cleanFirstName,
+                lastName: cleanLastName,
                 city: city.trimmingCharacters(in: .whitespacesAndNewlines),
                 groupName: savedGroupName,
                 groupColorHex: savedGroupColorHex,

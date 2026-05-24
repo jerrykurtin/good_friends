@@ -15,7 +15,7 @@ enum NotificationScheduler {
         guard reminderDate > .now else { return }
 
         let content = UNMutableNotificationContent()
-        content.title = "Check in with \(friend.name)"
+        content.title = "Check in with \(friend.displayName)"
         content.body = friend.city.isEmpty ? "It has been a little while." : "See how things are in \(friend.city)."
         content.sound = .default
 
