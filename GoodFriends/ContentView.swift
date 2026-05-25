@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import SpriteKit
 import UIKit
 
 struct ContentView: View {
@@ -1213,6 +1214,7 @@ private struct StatsFriendOverviewCard: View {
     let plannedCheckInsPerMonth: Int
     @Binding var isDraggingBalloon: Bool
     @StateObject private var balloonDragState = StatsBalloonDragState()
+    @State private var balloonPhysicsScene = StatsBalloonPhysicsScene()
 
     // Tune these normalized points to move the strings' hand anchors.
     // x and y are measured from the silhouette image's top-left corner, from 0...1.
@@ -1253,6 +1255,10 @@ private struct StatsFriendOverviewCard: View {
             let rightHandPoint = point(in: imageRect, normalized: rightHandAnchor)
 
             ZStack {
+                SpriteView(scene: balloonPhysicsScene, options: [.allowsTransparency])
+                    .frame(width: size.width, height: size.height)
+                    .allowsHitTesting(false)
+
                 statsBalloonRope(
                     from: leftHandPoint,
                     to: CGPoint(x: leftBalloonCenter.x, y: leftBalloonCenter.y + balloonSize.height * stringAttachmentY),
@@ -1345,6 +1351,14 @@ private struct StatsFriendOverviewCard: View {
             leftBalloonCenter: leftBalloonCenter,
             rightBalloonCenter: rightBalloonCenter
         )
+        balloonPhysicsScene.configure(
+            size: size,
+            balloonSize: balloonSize,
+            leftBalloonCenter: leftBalloonCenter,
+            rightBalloonCenter: rightBalloonCenter
+        ) { leftCenter, rightCenter in
+            balloonDragState.update(leftBalloonCenter: leftCenter, rightBalloonCenter: rightCenter)
+        }
     }
 
     private func renderedImageRect(sourceSize: CGSize, frameSize: CGSize, center: CGPoint) -> CGRect {
@@ -1395,10 +1409,15 @@ private struct StatsFriendOverviewCard: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .named("statsBalloonCanvas"))
                     .onChanged { value in
                         balloonDragState.setDragging(true)
-                        balloonDragState.move(side, to: value.location)
+                        balloonPhysicsScene.drag(side, to: value.location)
                     }
-                    .onEnded { _ in
-                        balloonDragState.returnToDefaults()
+                    .onEnded { value in
+                        balloonPhysicsScene.endDrag(
+                            predictedVelocity: CGVector(
+                                dx: value.predictedEndLocation.x - value.location.x,
+                                dy: value.predictedEndLocation.y - value.location.y
+                            )
+                        )
                         balloonDragState.setDragging(false)
                     }
             )
@@ -1417,9 +1436,6 @@ private final class StatsBalloonDragState: ObservableObject {
 
     private var layoutSize: CGSize = .zero
     private var balloonSize: CGSize = .zero
-    private var defaultLeftBalloonCenter: CGPoint?
-    private var defaultRightBalloonCenter: CGPoint?
-    private let returnAnimation = Animation.interpolatingSpring(stiffness: 82, damping: 10)
 
     func configureIfNeeded(
         layoutSize: CGSize,
@@ -1436,76 +1452,179 @@ private final class StatsBalloonDragState: ObservableObject {
 
         self.layoutSize = layoutSize
         self.balloonSize = balloonSize
-        defaultLeftBalloonCenter = leftBalloonCenter
-        defaultRightBalloonCenter = rightBalloonCenter
         self.leftBalloonCenter = leftBalloonCenter
         self.rightBalloonCenter = rightBalloonCenter
     }
 
-    func move(_ balloon: StatsBalloonSide, to center: CGPoint) {
-        guard let defaultLeftBalloonCenter, let defaultRightBalloonCenter else {
-            return
-        }
-
-        switch balloon {
-        case .left:
-            leftBalloonCenter = center
-            rightBalloonCenter = passiveBalloonCenter(
-                activeCenter: center,
-                passiveDefaultCenter: defaultRightBalloonCenter,
-                fallbackDirection: CGPoint(x: 1, y: 0)
-            )
-        case .right:
-            rightBalloonCenter = center
-            leftBalloonCenter = passiveBalloonCenter(
-                activeCenter: center,
-                passiveDefaultCenter: defaultLeftBalloonCenter,
-                fallbackDirection: CGPoint(x: -1, y: 0)
-            )
-        }
+    func update(leftBalloonCenter: CGPoint, rightBalloonCenter: CGPoint) {
+        self.leftBalloonCenter = leftBalloonCenter
+        self.rightBalloonCenter = rightBalloonCenter
     }
 
     func setDragging(_ isDragging: Bool) {
         self.isDragging = isDragging
     }
+}
 
-    func returnToDefaults() {
-        guard let defaultLeftBalloonCenter, let defaultRightBalloonCenter else {
+private final class StatsBalloonPhysicsScene: SKScene {
+    private enum PhysicsCategory {
+        static let balloon: UInt32 = 1 << 0
+        static let boundary: UInt32 = 1 << 1
+    }
+
+    private var leftNode: SKNode?
+    private var rightNode: SKNode?
+    private var leftHome = CGPoint.zero
+    private var rightHome = CGPoint.zero
+    private var dragTarget: CGPoint?
+    private var activeSide: StatsBalloonSide?
+    private var updateCenters: ((CGPoint, CGPoint) -> Void)?
+    private var configuredSize: CGSize = .zero
+    private var configuredBalloonSize: CGSize = .zero
+
+    override init(size: CGSize = .zero) {
+        super.init(size: size)
+        commonInit()
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        super.init(coder: aDecoder)
+        commonInit()
+    }
+
+    override func didMove(to view: SKView) {
+        view.preferredFramesPerSecond = 120
+    }
+
+    func configure(
+        size: CGSize,
+        balloonSize: CGSize,
+        leftBalloonCenter: CGPoint,
+        rightBalloonCenter: CGPoint,
+        updateCenters: @escaping (CGPoint, CGPoint) -> Void
+    ) {
+        self.updateCenters = updateCenters
+
+        guard configuredSize != size
+            || configuredBalloonSize != balloonSize
+            || leftNode == nil
+            || rightNode == nil else {
             return
         }
 
-        withAnimation(returnAnimation) {
-            leftBalloonCenter = defaultLeftBalloonCenter
-            rightBalloonCenter = defaultRightBalloonCenter
+        configuredSize = size
+        configuredBalloonSize = balloonSize
+        self.size = size
+        leftHome = spritePoint(from: leftBalloonCenter)
+        rightHome = spritePoint(from: rightBalloonCenter)
+        dragTarget = nil
+        activeSide = nil
+
+        removeAllChildren()
+        physicsBody = nil
+
+        let radius = balloonSize.width / 2
+        leftNode = makeBalloonNode(position: leftHome, radius: radius)
+        rightNode = makeBalloonNode(position: rightHome, radius: radius)
+
+        if let leftNode, let rightNode {
+            addChild(leftNode)
+            addChild(rightNode)
         }
     }
 
-    private func passiveBalloonCenter(
-        activeCenter: CGPoint,
-        passiveDefaultCenter: CGPoint,
-        fallbackDirection: CGPoint
-    ) -> CGPoint {
-        let minimumDistance = balloonSize.width
-        let delta = CGPoint(
-            x: passiveDefaultCenter.x - activeCenter.x,
-            y: passiveDefaultCenter.y - activeCenter.y
-        )
-        let distance = hypot(delta.x, delta.y)
-        guard distance < minimumDistance else {
-            return passiveDefaultCenter
+    func drag(_ side: StatsBalloonSide, to swiftUIPoint: CGPoint) {
+        activeSide = side
+        dragTarget = spritePoint(from: swiftUIPoint)
+    }
+
+    func endDrag(predictedVelocity: CGVector = .zero) {
+        if let activeNode {
+            let impulseScale: CGFloat = 0.018
+            activeNode.physicsBody?.applyImpulse(
+                CGVector(
+                    dx: predictedVelocity.dx * impulseScale,
+                    dy: -predictedVelocity.dy * impulseScale
+                )
+            )
         }
 
-        let direction: CGPoint
-        if distance > 0.001 {
-            direction = CGPoint(x: delta.x / distance, y: delta.y / distance)
-        } else {
-            direction = fallbackDirection
+        dragTarget = nil
+        activeSide = nil
+    }
+
+    override func update(_ currentTime: TimeInterval) {
+        guard let leftNode, let rightNode else {
+            return
         }
 
-        return CGPoint(
-            x: activeCenter.x + direction.x * minimumDistance,
-            y: activeCenter.y + direction.y * minimumDistance
+        applyHomeSpring(to: leftNode, home: leftHome, side: .left)
+        applyHomeSpring(to: rightNode, home: rightHome, side: .right)
+
+        updateCenters?(
+            swiftUIPoint(from: leftNode.position),
+            swiftUIPoint(from: rightNode.position)
         )
+    }
+
+    private func commonInit() {
+        backgroundColor = .clear
+        scaleMode = .resizeFill
+        physicsWorld.gravity = .zero
+        physicsWorld.speed = 1
+    }
+
+    private func makeBalloonNode(position: CGPoint, radius: CGFloat) -> SKNode {
+        let node = SKNode()
+        node.position = position
+
+        let body = SKPhysicsBody(circleOfRadius: radius)
+        body.categoryBitMask = PhysicsCategory.balloon
+        body.collisionBitMask = PhysicsCategory.balloon
+        body.contactTestBitMask = 0
+        body.friction = 0
+        body.restitution = 0.92
+        body.linearDamping = 0.38
+        body.angularDamping = 0.4
+        body.allowsRotation = false
+        body.mass = 0.09
+        node.physicsBody = body
+
+        return node
+    }
+
+    private func applyHomeSpring(to node: SKNode, home: CGPoint, side: StatsBalloonSide) {
+        let target = activeSide == side ? dragTarget ?? home : home
+        let stiffness: CGFloat = activeSide == side ? 105 : 5.2
+        let damping: CGFloat = activeSide == side ? 2.2 : 1.15
+        let dx = target.x - node.position.x
+        let dy = target.y - node.position.y
+        let velocity = node.physicsBody?.velocity ?? .zero
+        let force = CGVector(
+            dx: dx * stiffness - velocity.dx * damping,
+            dy: dy * stiffness - velocity.dy * damping
+        )
+
+        node.physicsBody?.applyForce(force)
+    }
+
+    private var activeNode: SKNode? {
+        switch activeSide {
+        case .left:
+            leftNode
+        case .right:
+            rightNode
+        case nil:
+            nil
+        }
+    }
+
+    private func spritePoint(from swiftUIPoint: CGPoint) -> CGPoint {
+        CGPoint(x: swiftUIPoint.x, y: size.height - swiftUIPoint.y)
+    }
+
+    private func swiftUIPoint(from spritePoint: CGPoint) -> CGPoint {
+        CGPoint(x: spritePoint.x, y: size.height - spritePoint.y)
     }
 }
 
