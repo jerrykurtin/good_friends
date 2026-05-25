@@ -1123,6 +1123,8 @@ private struct StatsTabView: View {
     @Query(sort: \Friend.name) private var friends: [Friend]
     @Query(sort: \CheckIn.date, order: .reverse) private var checkIns: [CheckIn]
     @State private var isDraggingStatsBalloon = false
+    @State private var isDraggingHistoryBubble = false
+    @State private var showingPlannedCheckInsInfo = false
 
     private let calendar = Calendar.current
 
@@ -1141,6 +1143,10 @@ private struct StatsTabView: View {
 
     private var checkInsThisWeek: Int {
         completedCheckIns(in: .weekOfYear)
+    }
+
+    private var checkInsThisMonth: Int {
+        completedCheckIns(in: .month)
     }
 
     private var checkInsThisYear: Int {
@@ -1171,28 +1177,81 @@ private struct StatsTabView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     StatsFriendOverviewCard(
                         closeFriendsCount: friends.count,
-                        plannedCheckInsPerMonth: plannedCheckInsPerMonth,
+                        allTimeCheckIns: allTimeCheckIns,
                         isDraggingBalloon: $isDraggingStatsBalloon
                     )
 
                     VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .center, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text("You")
+                                Text("have")
+                            }
+                            .font(.title2.weight(.black))
+                            .foregroundStyle(.white)
+
+                            Text("\(plannedCheckInsPerMonth)")
+                                .font(.system(size: 66, weight: .black, design: .rounded))
+                                .foregroundStyle(Color.goodFriendsAccent)
+                                .monospacedDigit()
+
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text("planned monthly")
+                                HStack(alignment: .center, spacing: 5) {
+                                    Text("check-ins")
+
+                                    Button {
+                                        showingPlannedCheckInsInfo = true
+                                    } label: {
+                                        Image(systemName: "info.circle")
+                                            .font(.caption.weight(.bold))
+                                            .foregroundStyle(.white.opacity(0.82))
+                                            .frame(width: 22, height: 22)
+                                            .contentShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel("About planned monthly check-ins")
+                                    .popover(isPresented: $showingPlannedCheckInsInfo, arrowEdge: .top) {
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Text("If this number scares you, that's ok! Consider changing how frequently you plan on checking in with your good friends or narrowing your friends down to the ones that matter most.")
+                                                .font(.subheadline)
+                                                .foregroundStyle(.primary)
+                                                .multilineTextAlignment(.leading)
+                                                .lineLimit(nil)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        .padding(16)
+                                        .frame(width: 300, alignment: .leading)
+                                            .presentationCompactAdaptation(.popover)
+                                    }
+                                }
+                            }
+                            .font(.title2.weight(.black))
+                            .foregroundStyle(.white)
+                        }
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+
                         Text("Check-in History")
                             .font(.headline)
 
-                        HStack(spacing: 12) {
-                            StatsCompactCard(title: "This week", value: "\(checkInsThisWeek)")
-                            StatsCompactCard(title: "This year", value: "\(checkInsThisYear)")
-                            StatsCompactCard(title: "All-time", value: "\(allTimeCheckIns)")
-                        }
+                        StatsHistoryBubbleField(
+                            bubbles: [
+                                StatsHistoryBubble(id: .week, title: "This week", value: checkInsThisWeek, diameter: 92),
+                                StatsHistoryBubble(id: .month, title: "This month", value: checkInsThisMonth, diameter: 118),
+                                StatsHistoryBubble(id: .year, title: "This year", value: checkInsThisYear, diameter: 144)
+                            ],
+                            isDraggingBubble: $isDraggingHistoryBubble
+                        )
 
                         StatsMonthlyChart(monthlyCounts: monthlyCounts)
                     }
                 }
                 .padding(20)
             }
-            .scrollDisabled(isDraggingStatsBalloon)
+            .scrollDisabled(isDraggingStatsBalloon || isDraggingHistoryBubble)
             .background(Color(.systemGroupedBackground))
-            .appNavigationHeader("Stats")
+            .appNavigationImageHeader("StatsHeader", accessibilityLabel: "STATS")
         }
     }
 
@@ -1211,7 +1270,7 @@ private struct StatsTabView: View {
 
 private struct StatsFriendOverviewCard: View {
     let closeFriendsCount: Int
-    let plannedCheckInsPerMonth: Int
+    let allTimeCheckIns: Int
     @Binding var isDraggingBalloon: Bool
     @StateObject private var balloonDragState = StatsBalloonDragState()
     @State private var balloonPhysicsScene = StatsBalloonPhysicsScene()
@@ -1280,14 +1339,14 @@ private struct StatsFriendOverviewCard: View {
 
                 StatsBalloonView(
                     value: "\(closeFriendsCount)",
-                    title: "Close friends"
+                    title: "good friends"
                 )
                     .frame(width: balloonSize.width, height: balloonSize.height)
                     .position(leftBalloonCenter)
 
                 StatsBalloonView(
-                    value: "\(plannedCheckInsPerMonth)",
-                    title: "Planned monthly"
+                    value: "\(allTimeCheckIns)",
+                    title: "check-ins"
                 )
                     .frame(width: balloonSize.width, height: balloonSize.height)
                     .position(rightBalloonCenter)
@@ -1333,7 +1392,7 @@ private struct StatsFriendOverviewCard: View {
         .frame(maxWidth: .infinity)
         .frame(height: 455)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(closeFriendsCount) close friends, \(plannedCheckInsPerMonth) planned check-ins per month")
+        .accessibilityLabel("\(closeFriendsCount) good friends, \(allTimeCheckIns) check-ins")
         .onReceive(balloonDragState.$isDragging.removeDuplicates()) { isDragging in
             isDraggingBalloon = isDragging
         }
@@ -1837,6 +1896,338 @@ private struct StatsBalloonKnotShape: Shape {
         path.addLine(to: topPoint)
 
         return path
+    }
+}
+
+private enum StatsHistoryBubbleID: CaseIterable, Hashable {
+    case week
+    case month
+    case year
+}
+
+private struct StatsHistoryBubble: Identifiable, Equatable {
+    let id: StatsHistoryBubbleID
+    let title: String
+    let value: Int
+    let diameter: CGFloat
+}
+
+private struct StatsHistoryBubbleField: View {
+    let bubbles: [StatsHistoryBubble]
+    @Binding var isDraggingBubble: Bool
+    @StateObject private var bubbleDragState = StatsHistoryBubbleDragState()
+    @State private var bubblePhysicsScene = StatsHistoryBubblePhysicsScene()
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+            let homes = defaultCenters(in: size)
+
+            ZStack {
+                SpriteView(scene: bubblePhysicsScene, options: [.allowsTransparency])
+                    .frame(width: size.width, height: size.height)
+                    .allowsHitTesting(false)
+
+                ForEach(bubbles) { bubble in
+                    let center = bubbleDragState.center(for: bubble.id) ?? homes[bubble.id] ?? .zero
+
+                    StatsHistoryBubbleView(bubble: bubble)
+                        .frame(width: bubble.diameter, height: bubble.diameter)
+                        .position(center)
+
+                    bubbleDragHitArea(
+                        id: bubble.id,
+                        center: center,
+                        diameter: bubble.diameter
+                    )
+                }
+            }
+            .coordinateSpace(name: "statsHistoryBubbleCanvas")
+            .onAppear {
+                configureBubbleDragState(size: size, homes: homes)
+            }
+            .onChange(of: size) { _, newSize in
+                configureBubbleDragState(size: newSize, homes: defaultCenters(in: newSize))
+            }
+            .onChange(of: bubbles) { _, _ in
+                configureBubbleDragState(size: size, homes: homes)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 230)
+        .accessibilityElement(children: .contain)
+        .onReceive(bubbleDragState.$isDragging.removeDuplicates()) { isDragging in
+            isDraggingBubble = isDragging
+        }
+    }
+
+    private func configureBubbleDragState(size: CGSize, homes: [StatsHistoryBubbleID: CGPoint]) {
+        let diameters = Dictionary(uniqueKeysWithValues: bubbles.map { ($0.id, $0.diameter) })
+
+        bubbleDragState.configureIfNeeded(centers: homes, diameters: diameters)
+        bubblePhysicsScene.configure(
+            size: size,
+            diameters: diameters,
+            centers: homes
+        ) { centers in
+            bubbleDragState.update(centers: centers)
+        }
+    }
+
+    private func defaultCenters(in size: CGSize) -> [StatsHistoryBubbleID: CGPoint] {
+        [
+            .week: CGPoint(x: size.width * 0.17, y: size.height * 0.58),
+            .month: CGPoint(x: size.width * 0.49, y: size.height * 0.40),
+            .year: CGPoint(x: size.width * 0.86, y: size.height * 0.57)
+        ]
+    }
+
+    private func bubbleDragHitArea(id: StatsHistoryBubbleID, center: CGPoint, diameter: CGFloat) -> some View {
+        Circle()
+            .fill(.clear)
+            .contentShape(Circle())
+            .frame(width: diameter * 1.12, height: diameter * 1.12)
+            .position(center)
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named("statsHistoryBubbleCanvas"))
+                    .onChanged { value in
+                        bubbleDragState.setDragging(true)
+                        bubblePhysicsScene.drag(id, to: value.location)
+                    }
+                    .onEnded { value in
+                        bubblePhysicsScene.endDrag(
+                            predictedVelocity: CGVector(
+                                dx: value.predictedEndLocation.x - value.location.x,
+                                dy: value.predictedEndLocation.y - value.location.y
+                            )
+                        )
+                        bubbleDragState.setDragging(false)
+                    }
+            )
+    }
+}
+
+private final class StatsHistoryBubbleDragState: ObservableObject {
+    @Published private var centers: [StatsHistoryBubbleID: CGPoint] = [:]
+    @Published var isDragging = false
+
+    private var diameters: [StatsHistoryBubbleID: CGFloat] = [:]
+
+    func configureIfNeeded(
+        centers: [StatsHistoryBubbleID: CGPoint],
+        diameters: [StatsHistoryBubbleID: CGFloat]
+    ) {
+        guard self.centers.isEmpty || self.diameters != diameters else {
+            return
+        }
+
+        self.centers = centers
+        self.diameters = diameters
+    }
+
+    func center(for id: StatsHistoryBubbleID) -> CGPoint? {
+        centers[id]
+    }
+
+    func update(centers: [StatsHistoryBubbleID: CGPoint]) {
+        self.centers = centers
+    }
+
+    func setDragging(_ isDragging: Bool) {
+        self.isDragging = isDragging
+    }
+}
+
+private final class StatsHistoryBubblePhysicsScene: SKScene {
+    private enum PhysicsCategory {
+        static let bubble: UInt32 = 1 << 0
+    }
+
+    private var nodes: [StatsHistoryBubbleID: SKNode] = [:]
+    private var homes: [StatsHistoryBubbleID: CGPoint] = [:]
+    private var dragTarget: CGPoint?
+    private var activeID: StatsHistoryBubbleID?
+    private var updateCenters: (([StatsHistoryBubbleID: CGPoint]) -> Void)?
+    private var configuredSize: CGSize = .zero
+    private var configuredDiameters: [StatsHistoryBubbleID: CGFloat] = [:]
+
+    override init(size: CGSize = .zero) {
+        super.init(size: size)
+        commonInit()
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        super.init(coder: aDecoder)
+        commonInit()
+    }
+
+    override func didMove(to view: SKView) {
+        view.preferredFramesPerSecond = 120
+    }
+
+    func configure(
+        size: CGSize,
+        diameters: [StatsHistoryBubbleID: CGFloat],
+        centers: [StatsHistoryBubbleID: CGPoint],
+        updateCenters: @escaping ([StatsHistoryBubbleID: CGPoint]) -> Void
+    ) {
+        self.updateCenters = updateCenters
+
+        guard configuredSize != size
+            || configuredDiameters != diameters
+            || nodes.isEmpty else {
+            return
+        }
+
+        configuredSize = size
+        configuredDiameters = diameters
+        self.size = size
+        homes = centers.mapValues { spritePoint(from: $0) }
+        dragTarget = nil
+        activeID = nil
+
+        removeAllChildren()
+        physicsBody = nil
+        nodes = [:]
+
+        for id in StatsHistoryBubbleID.allCases {
+            guard let home = homes[id],
+                  let diameter = diameters[id] else {
+                continue
+            }
+
+            let node = makeBubbleNode(position: home, radius: diameter / 2)
+            nodes[id] = node
+            addChild(node)
+        }
+    }
+
+    func drag(_ id: StatsHistoryBubbleID, to swiftUIPoint: CGPoint) {
+        activeID = id
+        dragTarget = spritePoint(from: swiftUIPoint)
+    }
+
+    func endDrag(predictedVelocity: CGVector = .zero) {
+        if let activeNode {
+            let impulseScale: CGFloat = 0.019
+            activeNode.physicsBody?.applyImpulse(
+                CGVector(
+                    dx: predictedVelocity.dx * impulseScale,
+                    dy: -predictedVelocity.dy * impulseScale
+                )
+            )
+        }
+
+        dragTarget = nil
+        activeID = nil
+    }
+
+    override func update(_ currentTime: TimeInterval) {
+        for (id, node) in nodes {
+            guard let home = homes[id] else {
+                continue
+            }
+
+            applyHomeSpring(to: node, home: home, id: id)
+        }
+
+        updateCenters?(
+            nodes.mapValues { swiftUIPoint(from: $0.position) }
+        )
+    }
+
+    private func commonInit() {
+        backgroundColor = .clear
+        scaleMode = .resizeFill
+        physicsWorld.gravity = .zero
+        physicsWorld.speed = 1
+    }
+
+    private func makeBubbleNode(position: CGPoint, radius: CGFloat) -> SKNode {
+        let node = SKNode()
+        node.position = position
+
+        let body = SKPhysicsBody(circleOfRadius: radius)
+        body.categoryBitMask = PhysicsCategory.bubble
+        body.collisionBitMask = PhysicsCategory.bubble
+        body.contactTestBitMask = 0
+        body.friction = 0
+        body.restitution = 0.86
+        body.linearDamping = 0.44
+        body.angularDamping = 0.5
+        body.allowsRotation = false
+        body.mass = max(0.07, radius / 900)
+        node.physicsBody = body
+
+        return node
+    }
+
+    private func applyHomeSpring(to node: SKNode, home: CGPoint, id: StatsHistoryBubbleID) {
+        let target = activeID == id ? dragTarget ?? home : home
+        let stiffness: CGFloat = activeID == id ? 118 : 5.8
+        let damping: CGFloat = activeID == id ? 2.4 : 1.25
+        let dx = target.x - node.position.x
+        let dy = target.y - node.position.y
+        let velocity = node.physicsBody?.velocity ?? .zero
+        let force = CGVector(
+            dx: dx * stiffness - velocity.dx * damping,
+            dy: dy * stiffness - velocity.dy * damping
+        )
+
+        node.physicsBody?.applyForce(force)
+    }
+
+    private var activeNode: SKNode? {
+        guard let activeID else {
+            return nil
+        }
+
+        return nodes[activeID]
+    }
+
+    private func spritePoint(from swiftUIPoint: CGPoint) -> CGPoint {
+        CGPoint(x: swiftUIPoint.x, y: size.height - swiftUIPoint.y)
+    }
+
+    private func swiftUIPoint(from spritePoint: CGPoint) -> CGPoint {
+        CGPoint(x: spritePoint.x, y: size.height - spritePoint.y)
+    }
+}
+
+private struct StatsHistoryBubbleView: View {
+    let bubble: StatsHistoryBubble
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(.regularMaterial)
+                .overlay {
+                    Circle()
+                        .fill(Color.goodFriendsAccent.opacity(0.16))
+                }
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.18), lineWidth: 1)
+                }
+
+            VStack(spacing: 4) {
+                Text("\(bubble.value)")
+                    .font(.system(.largeTitle, design: .rounded, weight: .black))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.45)
+                    .monospacedDigit()
+
+                Text(bubble.title)
+                    .font(.caption.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.66)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(bubble.title), \(bubble.value) check-ins")
     }
 }
 
