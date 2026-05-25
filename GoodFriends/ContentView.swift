@@ -1122,8 +1122,7 @@ private struct HistoryTabView: View {
 private struct StatsTabView: View {
     @Query(sort: \Friend.name) private var friends: [Friend]
     @Query(sort: \CheckIn.date, order: .reverse) private var checkIns: [CheckIn]
-    @State private var isDraggingStatsBalloon = false
-    @State private var isDraggingHistoryBubble = false
+    @State private var isDraggingStatsPhysics = false
     @State private var showingPlannedCheckInsInfo = false
 
     private let calendar = Calendar.current
@@ -1178,8 +1177,9 @@ private struct StatsTabView: View {
                     StatsFriendOverviewCard(
                         closeFriendsCount: friends.count,
                         allTimeCheckIns: allTimeCheckIns,
-                        isDraggingBalloon: $isDraggingStatsBalloon
+                        isDraggingPhysics: $isDraggingStatsPhysics
                     )
+                    .zIndex(3)
 
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .center, spacing: 10) {
@@ -1222,7 +1222,7 @@ private struct StatsTabView: View {
                                         }
                                         .padding(16)
                                         .frame(width: 300, alignment: .leading)
-                                            .presentationCompactAdaptation(.popover)
+                                        .presentationCompactAdaptation(.popover)
                                     }
                                 }
                             }
@@ -1237,19 +1237,22 @@ private struct StatsTabView: View {
 
                         StatsHistoryBubbleField(
                             bubbles: [
-                                StatsHistoryBubble(id: .week, title: "This week", value: checkInsThisWeek, diameter: 92),
-                                StatsHistoryBubble(id: .month, title: "This month", value: checkInsThisMonth, diameter: 118),
-                                StatsHistoryBubble(id: .year, title: "This year", value: checkInsThisYear, diameter: 144)
+                                StatsHistoryBubble(id: .week, title: "This week", value: checkInsThisWeek, diameter: 104),
+                                StatsHistoryBubble(id: .month, title: "This month", value: checkInsThisMonth, diameter: 136),
+                                StatsHistoryBubble(id: .year, title: "This year", value: checkInsThisYear, diameter: 162)
                             ],
-                            isDraggingBubble: $isDraggingHistoryBubble
+                            isDraggingPhysics: $isDraggingStatsPhysics
                         )
+                        .zIndex(3)
 
                         StatsMonthlyChart(monthlyCounts: monthlyCounts)
+                            .zIndex(0)
                     }
+                    .zIndex(1)
                 }
                 .padding(20)
             }
-            .scrollDisabled(isDraggingStatsBalloon || isDraggingHistoryBubble)
+            .scrollDisabled(isDraggingStatsPhysics)
             .background(Color(.systemGroupedBackground))
             .appNavigationImageHeader("StatsHeader", accessibilityLabel: "STATS")
         }
@@ -1268,12 +1271,194 @@ private struct StatsTabView: View {
     }
 }
 
+private enum StatsPhysicsID: CaseIterable, Hashable {
+    case leftBalloon
+    case rightBalloon
+    case weekBubble
+    case monthBubble
+    case yearBubble
+}
+
+private struct StatsPhysicsItem: Equatable {
+    let id: StatsPhysicsID
+    let home: CGPoint
+    let radius: CGFloat
+    let mass: CGFloat
+    let restitution: CGFloat
+    let linearDamping: CGFloat
+}
+
+private final class StatsUnifiedPhysicsState: ObservableObject {
+    @Published private var centers: [StatsPhysicsID: CGPoint] = [:]
+
+    func center(for id: StatsPhysicsID) -> CGPoint? {
+        centers[id]
+    }
+
+    func update(centers: [StatsPhysicsID: CGPoint]) {
+        self.centers = centers
+    }
+}
+
+private final class StatsUnifiedPhysicsScene: SKScene {
+    private enum PhysicsCategory {
+        static let movable: UInt32 = 1 << 0
+    }
+
+    private var nodes: [StatsPhysicsID: SKNode] = [:]
+    private var homes: [StatsPhysicsID: CGPoint] = [:]
+    private var radii: [StatsPhysicsID: CGFloat] = [:]
+    private var dragTarget: CGPoint?
+    private var activeID: StatsPhysicsID?
+    private var updateCenters: (([StatsPhysicsID: CGPoint]) -> Void)?
+    private var configuredSize: CGSize = .zero
+
+    override init(size: CGSize = .zero) {
+        super.init(size: size)
+        commonInit()
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        super.init(coder: aDecoder)
+        commonInit()
+    }
+
+    override func didMove(to view: SKView) {
+        view.preferredFramesPerSecond = 120
+    }
+
+    func register(
+        items: [StatsPhysicsItem],
+        sceneSize: CGSize,
+        updateCenters: @escaping ([StatsPhysicsID: CGPoint]) -> Void
+    ) {
+        self.updateCenters = updateCenters
+
+        guard sceneSize.width > 0, sceneSize.height > 0 else {
+            return
+        }
+
+        if configuredSize != sceneSize {
+            configuredSize = sceneSize
+            size = sceneSize
+        }
+
+        for item in items {
+            homes[item.id] = spritePoint(from: item.home)
+
+            if radii[item.id] != item.radius {
+                nodes[item.id]?.removeFromParent()
+                let node = makeNode(item: item)
+                nodes[item.id] = node
+                radii[item.id] = item.radius
+                addChild(node)
+            } else if nodes[item.id] == nil {
+                let node = makeNode(item: item)
+                nodes[item.id] = node
+                radii[item.id] = item.radius
+                addChild(node)
+            }
+        }
+    }
+
+    func drag(_ id: StatsPhysicsID, to swiftUIPoint: CGPoint) {
+        activeID = id
+        dragTarget = spritePoint(from: swiftUIPoint)
+    }
+
+    func endDrag(predictedVelocity: CGVector = .zero) {
+        if let activeNode {
+            let impulseScale: CGFloat = 0.0185
+            activeNode.physicsBody?.applyImpulse(
+                CGVector(
+                    dx: predictedVelocity.dx * impulseScale,
+                    dy: -predictedVelocity.dy * impulseScale
+                )
+            )
+        }
+
+        dragTarget = nil
+        activeID = nil
+    }
+
+    override func update(_ currentTime: TimeInterval) {
+        for (id, node) in nodes {
+            guard let home = homes[id] else {
+                continue
+            }
+
+            applyHomeSpring(to: node, home: home, id: id)
+        }
+
+        updateCenters?(
+            nodes.mapValues { swiftUIPoint(from: $0.position) }
+        )
+    }
+
+    private func commonInit() {
+        backgroundColor = .clear
+        scaleMode = .resizeFill
+        physicsWorld.gravity = .zero
+        physicsWorld.speed = 1
+    }
+
+    private func makeNode(item: StatsPhysicsItem) -> SKNode {
+        let node = SKNode()
+        node.position = spritePoint(from: item.home)
+
+        let body = SKPhysicsBody(circleOfRadius: item.radius)
+        body.categoryBitMask = PhysicsCategory.movable
+        body.collisionBitMask = PhysicsCategory.movable
+        body.contactTestBitMask = 0
+        body.friction = 0
+        body.restitution = item.restitution
+        body.linearDamping = item.linearDamping
+        body.angularDamping = 0.45
+        body.allowsRotation = false
+        body.mass = item.mass
+        node.physicsBody = body
+
+        return node
+    }
+
+    private func applyHomeSpring(to node: SKNode, home: CGPoint, id: StatsPhysicsID) {
+        let target = activeID == id ? dragTarget ?? home : home
+        let stiffness: CGFloat = activeID == id ? 112 : 5.4
+        let damping: CGFloat = activeID == id ? 2.25 : 1.18
+        let dx = target.x - node.position.x
+        let dy = target.y - node.position.y
+        let velocity = node.physicsBody?.velocity ?? .zero
+        let force = CGVector(
+            dx: dx * stiffness - velocity.dx * damping,
+            dy: dy * stiffness - velocity.dy * damping
+        )
+
+        node.physicsBody?.applyForce(force)
+    }
+
+    private var activeNode: SKNode? {
+        guard let activeID else {
+            return nil
+        }
+
+        return nodes[activeID]
+    }
+
+    private func spritePoint(from swiftUIPoint: CGPoint) -> CGPoint {
+        CGPoint(x: swiftUIPoint.x, y: size.height - swiftUIPoint.y)
+    }
+
+    private func swiftUIPoint(from spritePoint: CGPoint) -> CGPoint {
+        CGPoint(x: spritePoint.x, y: size.height - spritePoint.y)
+    }
+}
+
 private struct StatsFriendOverviewCard: View {
     let closeFriendsCount: Int
     let allTimeCheckIns: Int
-    @Binding var isDraggingBalloon: Bool
-    @StateObject private var balloonDragState = StatsBalloonDragState()
-    @State private var balloonPhysicsScene = StatsBalloonPhysicsScene()
+    @Binding var isDraggingPhysics: Bool
+    @StateObject private var physicsState = StatsUnifiedPhysicsState()
+    @State private var physicsScene = StatsUnifiedPhysicsScene()
 
     // Tune these normalized points to move the strings' hand anchors.
     // x and y are measured from the silhouette image's top-left corner, from 0...1.
@@ -1298,8 +1483,8 @@ private struct StatsFriendOverviewCard: View {
             )
             let defaultLeftBalloonCenter = CGPoint(x: size.width * 0.27, y: size.height * 0.23)
             let defaultRightBalloonCenter = CGPoint(x: size.width * 0.73, y: size.height * (0.23 + rightBalloonYOffset))
-            let leftBalloonCenter = balloonDragState.leftBalloonCenter ?? defaultLeftBalloonCenter
-            let rightBalloonCenter = balloonDragState.rightBalloonCenter ?? defaultRightBalloonCenter
+            let leftBalloonCenter = physicsState.center(for: .leftBalloon) ?? defaultLeftBalloonCenter
+            let rightBalloonCenter = physicsState.center(for: .rightBalloon) ?? defaultRightBalloonCenter
             let imageFrameSize = CGSize(
                 width: size.width * 1.26 * peopleScale,
                 height: size.height * 1.02 * peopleScale
@@ -1312,9 +1497,14 @@ private struct StatsFriendOverviewCard: View {
             )
             let leftHandPoint = point(in: imageRect, normalized: leftHandAnchor)
             let rightHandPoint = point(in: imageRect, normalized: rightHandAnchor)
+            let physicsItems = balloonPhysicsItems(
+                balloonSize: balloonSize,
+                leftBalloonHome: defaultLeftBalloonCenter,
+                rightBalloonHome: defaultRightBalloonCenter
+            )
 
             ZStack {
-                SpriteView(scene: balloonPhysicsScene, options: [.allowsTransparency])
+                SpriteView(scene: physicsScene, options: [.allowsTransparency])
                     .frame(width: size.width, height: size.height)
                     .allowsHitTesting(false)
 
@@ -1352,40 +1542,38 @@ private struct StatsFriendOverviewCard: View {
                     .position(rightBalloonCenter)
 
                 balloonDragHitArea(
-                    side: .left,
+                    side: .leftBalloon,
                     center: leftBalloonCenter,
                     hitSize: balloonHitSize(for: balloonSize)
                 )
 
                 balloonDragHitArea(
-                    side: .right,
+                    side: .rightBalloon,
                     center: rightBalloonCenter,
                     hitSize: balloonHitSize(for: balloonSize)
                 )
             }
-            .coordinateSpace(name: "statsBalloonCanvas")
+            .zIndex(3)
+            .coordinateSpace(name: "statsBalloonPhysicsCanvas")
             .onAppear {
-                configureBalloonDragState(
-                    size: size,
-                    balloonSize: balloonSize,
-                    leftBalloonCenter: defaultLeftBalloonCenter,
-                    rightBalloonCenter: defaultRightBalloonCenter
-                )
+                configureBalloonPhysics(items: physicsItems, sceneSize: size)
             }
             .onChange(of: size) { _, newSize in
-                configureBalloonDragState(
-                    size: newSize,
-                    balloonSize: balloonSize,
-                    leftBalloonCenter: defaultLeftBalloonCenter,
-                    rightBalloonCenter: defaultRightBalloonCenter
+                let newBaseBalloonSize = CGSize(
+                    width: min(144, newSize.width * 0.35),
+                    height: min(158, newSize.width * 0.39)
                 )
-            }
-            .onChange(of: balloonSize) { _, newBalloonSize in
-                configureBalloonDragState(
-                    size: size,
-                    balloonSize: newBalloonSize,
-                    leftBalloonCenter: defaultLeftBalloonCenter,
-                    rightBalloonCenter: defaultRightBalloonCenter
+                let newBalloonSize = CGSize(
+                    width: newBaseBalloonSize.width * balloonScale,
+                    height: newBaseBalloonSize.height * balloonScale
+                )
+                configureBalloonPhysics(
+                    items: balloonPhysicsItems(
+                        balloonSize: newBalloonSize,
+                        leftBalloonHome: CGPoint(x: newSize.width * 0.27, y: newSize.height * 0.23),
+                        rightBalloonHome: CGPoint(x: newSize.width * 0.73, y: newSize.height * (0.23 + rightBalloonYOffset))
+                    ),
+                    sceneSize: newSize
                 )
             }
         }
@@ -1393,30 +1581,41 @@ private struct StatsFriendOverviewCard: View {
         .frame(height: 455)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(closeFriendsCount) good friends, \(allTimeCheckIns) check-ins")
-        .onReceive(balloonDragState.$isDragging.removeDuplicates()) { isDragging in
-            isDraggingBalloon = isDragging
-        }
     }
 
-    private func configureBalloonDragState(
-        size: CGSize,
+    private func balloonPhysicsItems(
         balloonSize: CGSize,
-        leftBalloonCenter: CGPoint,
-        rightBalloonCenter: CGPoint
-    ) {
-        balloonDragState.configureIfNeeded(
-            layoutSize: size,
-            balloonSize: balloonSize,
-            leftBalloonCenter: leftBalloonCenter,
-            rightBalloonCenter: rightBalloonCenter
-        )
-        balloonPhysicsScene.configure(
-            size: size,
-            balloonSize: balloonSize,
-            leftBalloonCenter: leftBalloonCenter,
-            rightBalloonCenter: rightBalloonCenter
-        ) { leftCenter, rightCenter in
-            balloonDragState.update(leftBalloonCenter: leftCenter, rightBalloonCenter: rightCenter)
+        leftBalloonHome: CGPoint,
+        rightBalloonHome: CGPoint
+    ) -> [StatsPhysicsItem] {
+        let radius = balloonSize.width / 2
+
+        return [
+            StatsPhysicsItem(
+                id: .leftBalloon,
+                home: leftBalloonHome,
+                radius: radius,
+                mass: 0.09,
+                restitution: 0.92,
+                linearDamping: 0.38
+            ),
+            StatsPhysicsItem(
+                id: .rightBalloon,
+                home: rightBalloonHome,
+                radius: radius,
+                mass: 0.09,
+                restitution: 0.92,
+                linearDamping: 0.38
+            )
+        ]
+    }
+
+    private func configureBalloonPhysics(items: [StatsPhysicsItem], sceneSize: CGSize) {
+        physicsScene.register(
+            items: items,
+            sceneSize: sceneSize
+        ) { centers in
+            physicsState.update(centers: centers)
         }
     }
 
@@ -1458,232 +1657,28 @@ private struct StatsFriendOverviewCard: View {
         )
     }
 
-    private func balloonDragHitArea(side: StatsBalloonSide, center: CGPoint, hitSize: CGSize) -> some View {
+    private func balloonDragHitArea(side: StatsPhysicsID, center: CGPoint, hitSize: CGSize) -> some View {
         Rectangle()
             .fill(.clear)
             .contentShape(Rectangle())
             .frame(width: hitSize.width, height: hitSize.height)
             .position(center)
             .highPriorityGesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named("statsBalloonCanvas"))
+                DragGesture(minimumDistance: 0, coordinateSpace: .named("statsBalloonPhysicsCanvas"))
                     .onChanged { value in
-                        balloonDragState.setDragging(true)
-                        balloonPhysicsScene.drag(side, to: value.location)
+                        isDraggingPhysics = true
+                        physicsScene.drag(side, to: value.location)
                     }
                     .onEnded { value in
-                        balloonPhysicsScene.endDrag(
+                        physicsScene.endDrag(
                             predictedVelocity: CGVector(
                                 dx: value.predictedEndLocation.x - value.location.x,
                                 dy: value.predictedEndLocation.y - value.location.y
                             )
                         )
-                        balloonDragState.setDragging(false)
+                        isDraggingPhysics = false
                     }
             )
-    }
-}
-
-private enum StatsBalloonSide {
-    case left
-    case right
-}
-
-private final class StatsBalloonDragState: ObservableObject {
-    @Published var leftBalloonCenter: CGPoint?
-    @Published var rightBalloonCenter: CGPoint?
-    @Published var isDragging = false
-
-    private var layoutSize: CGSize = .zero
-    private var balloonSize: CGSize = .zero
-
-    func configureIfNeeded(
-        layoutSize: CGSize,
-        balloonSize: CGSize,
-        leftBalloonCenter: CGPoint,
-        rightBalloonCenter: CGPoint
-    ) {
-        guard self.layoutSize != layoutSize
-            || self.balloonSize != balloonSize
-            || self.leftBalloonCenter == nil
-            || self.rightBalloonCenter == nil else {
-            return
-        }
-
-        self.layoutSize = layoutSize
-        self.balloonSize = balloonSize
-        self.leftBalloonCenter = leftBalloonCenter
-        self.rightBalloonCenter = rightBalloonCenter
-    }
-
-    func update(leftBalloonCenter: CGPoint, rightBalloonCenter: CGPoint) {
-        self.leftBalloonCenter = leftBalloonCenter
-        self.rightBalloonCenter = rightBalloonCenter
-    }
-
-    func setDragging(_ isDragging: Bool) {
-        self.isDragging = isDragging
-    }
-}
-
-private final class StatsBalloonPhysicsScene: SKScene {
-    private enum PhysicsCategory {
-        static let balloon: UInt32 = 1 << 0
-        static let boundary: UInt32 = 1 << 1
-    }
-
-    private var leftNode: SKNode?
-    private var rightNode: SKNode?
-    private var leftHome = CGPoint.zero
-    private var rightHome = CGPoint.zero
-    private var dragTarget: CGPoint?
-    private var activeSide: StatsBalloonSide?
-    private var updateCenters: ((CGPoint, CGPoint) -> Void)?
-    private var configuredSize: CGSize = .zero
-    private var configuredBalloonSize: CGSize = .zero
-
-    override init(size: CGSize = .zero) {
-        super.init(size: size)
-        commonInit()
-    }
-
-    required init?(coder aDecoder: NSCoder) {
-        super.init(coder: aDecoder)
-        commonInit()
-    }
-
-    override func didMove(to view: SKView) {
-        view.preferredFramesPerSecond = 120
-    }
-
-    func configure(
-        size: CGSize,
-        balloonSize: CGSize,
-        leftBalloonCenter: CGPoint,
-        rightBalloonCenter: CGPoint,
-        updateCenters: @escaping (CGPoint, CGPoint) -> Void
-    ) {
-        self.updateCenters = updateCenters
-
-        guard configuredSize != size
-            || configuredBalloonSize != balloonSize
-            || leftNode == nil
-            || rightNode == nil else {
-            return
-        }
-
-        configuredSize = size
-        configuredBalloonSize = balloonSize
-        self.size = size
-        leftHome = spritePoint(from: leftBalloonCenter)
-        rightHome = spritePoint(from: rightBalloonCenter)
-        dragTarget = nil
-        activeSide = nil
-
-        removeAllChildren()
-        physicsBody = nil
-
-        let radius = balloonSize.width / 2
-        leftNode = makeBalloonNode(position: leftHome, radius: radius)
-        rightNode = makeBalloonNode(position: rightHome, radius: radius)
-
-        if let leftNode, let rightNode {
-            addChild(leftNode)
-            addChild(rightNode)
-        }
-    }
-
-    func drag(_ side: StatsBalloonSide, to swiftUIPoint: CGPoint) {
-        activeSide = side
-        dragTarget = spritePoint(from: swiftUIPoint)
-    }
-
-    func endDrag(predictedVelocity: CGVector = .zero) {
-        if let activeNode {
-            let impulseScale: CGFloat = 0.018
-            activeNode.physicsBody?.applyImpulse(
-                CGVector(
-                    dx: predictedVelocity.dx * impulseScale,
-                    dy: -predictedVelocity.dy * impulseScale
-                )
-            )
-        }
-
-        dragTarget = nil
-        activeSide = nil
-    }
-
-    override func update(_ currentTime: TimeInterval) {
-        guard let leftNode, let rightNode else {
-            return
-        }
-
-        applyHomeSpring(to: leftNode, home: leftHome, side: .left)
-        applyHomeSpring(to: rightNode, home: rightHome, side: .right)
-
-        updateCenters?(
-            swiftUIPoint(from: leftNode.position),
-            swiftUIPoint(from: rightNode.position)
-        )
-    }
-
-    private func commonInit() {
-        backgroundColor = .clear
-        scaleMode = .resizeFill
-        physicsWorld.gravity = .zero
-        physicsWorld.speed = 1
-    }
-
-    private func makeBalloonNode(position: CGPoint, radius: CGFloat) -> SKNode {
-        let node = SKNode()
-        node.position = position
-
-        let body = SKPhysicsBody(circleOfRadius: radius)
-        body.categoryBitMask = PhysicsCategory.balloon
-        body.collisionBitMask = PhysicsCategory.balloon
-        body.contactTestBitMask = 0
-        body.friction = 0
-        body.restitution = 0.92
-        body.linearDamping = 0.38
-        body.angularDamping = 0.4
-        body.allowsRotation = false
-        body.mass = 0.09
-        node.physicsBody = body
-
-        return node
-    }
-
-    private func applyHomeSpring(to node: SKNode, home: CGPoint, side: StatsBalloonSide) {
-        let target = activeSide == side ? dragTarget ?? home : home
-        let stiffness: CGFloat = activeSide == side ? 105 : 5.2
-        let damping: CGFloat = activeSide == side ? 2.2 : 1.15
-        let dx = target.x - node.position.x
-        let dy = target.y - node.position.y
-        let velocity = node.physicsBody?.velocity ?? .zero
-        let force = CGVector(
-            dx: dx * stiffness - velocity.dx * damping,
-            dy: dy * stiffness - velocity.dy * damping
-        )
-
-        node.physicsBody?.applyForce(force)
-    }
-
-    private var activeNode: SKNode? {
-        switch activeSide {
-        case .left:
-            leftNode
-        case .right:
-            rightNode
-        case nil:
-            nil
-        }
-    }
-
-    private func spritePoint(from swiftUIPoint: CGPoint) -> CGPoint {
-        CGPoint(x: swiftUIPoint.x, y: size.height - swiftUIPoint.y)
-    }
-
-    private func swiftUIPoint(from spritePoint: CGPoint) -> CGPoint {
-        CGPoint(x: spritePoint.x, y: size.height - spritePoint.y)
     }
 }
 
@@ -1914,22 +1909,24 @@ private struct StatsHistoryBubble: Identifiable, Equatable {
 
 private struct StatsHistoryBubbleField: View {
     let bubbles: [StatsHistoryBubble]
-    @Binding var isDraggingBubble: Bool
-    @StateObject private var bubbleDragState = StatsHistoryBubbleDragState()
-    @State private var bubblePhysicsScene = StatsHistoryBubblePhysicsScene()
+    @Binding var isDraggingPhysics: Bool
+    @StateObject private var physicsState = StatsUnifiedPhysicsState()
+    @State private var physicsScene = StatsUnifiedPhysicsScene()
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             let homes = defaultCenters(in: size)
+            let physicsItems = bubblePhysicsItems(homes: homes)
 
             ZStack {
-                SpriteView(scene: bubblePhysicsScene, options: [.allowsTransparency])
+                SpriteView(scene: physicsScene, options: [.allowsTransparency])
                     .frame(width: size.width, height: size.height)
                     .allowsHitTesting(false)
 
                 ForEach(bubbles) { bubble in
-                    let center = bubbleDragState.center(for: bubble.id) ?? homes[bubble.id] ?? .zero
+                    let home = homes[bubble.id] ?? .zero
+                    let center = physicsState.center(for: bubble.id.physicsID) ?? home
 
                     StatsHistoryBubbleView(bubble: bubble)
                         .frame(width: bubble.diameter, height: bubble.diameter)
@@ -1942,44 +1939,72 @@ private struct StatsHistoryBubbleField: View {
                     )
                 }
             }
-            .coordinateSpace(name: "statsHistoryBubbleCanvas")
+            .zIndex(3)
+            .coordinateSpace(name: "statsBubblePhysicsCanvas")
             .onAppear {
-                configureBubbleDragState(size: size, homes: homes)
+                configureBubblePhysics(items: physicsItems, sceneSize: size)
             }
             .onChange(of: size) { _, newSize in
-                configureBubbleDragState(size: newSize, homes: defaultCenters(in: newSize))
+                configureBubblePhysics(
+                    items: bubblePhysicsItems(homes: defaultCenters(in: newSize)),
+                    sceneSize: newSize
+                )
             }
             .onChange(of: bubbles) { _, _ in
-                configureBubbleDragState(size: size, homes: homes)
+                configureBubblePhysics(items: physicsItems, sceneSize: size)
             }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 230)
         .accessibilityElement(children: .contain)
-        .onReceive(bubbleDragState.$isDragging.removeDuplicates()) { isDragging in
-            isDraggingBubble = isDragging
+    }
+
+    private func bubblePhysicsItems(
+        homes: [StatsHistoryBubbleID: CGPoint]
+    ) -> [StatsPhysicsItem] {
+        bubbles.compactMap { bubble -> StatsPhysicsItem? in
+            guard let home = homes[bubble.id] else {
+                return nil
+            }
+
+            return StatsPhysicsItem(
+                id: bubble.id.physicsID,
+                home: home,
+                radius: bubble.diameter / 2,
+                mass: max(0.07, bubble.diameter / 1_800),
+                restitution: 0.86,
+                linearDamping: 0.44
+            )
         }
     }
 
-    private func configureBubbleDragState(size: CGSize, homes: [StatsHistoryBubbleID: CGPoint]) {
-        let diameters = Dictionary(uniqueKeysWithValues: bubbles.map { ($0.id, $0.diameter) })
-
-        bubbleDragState.configureIfNeeded(centers: homes, diameters: diameters)
-        bubblePhysicsScene.configure(
-            size: size,
-            diameters: diameters,
-            centers: homes
+    private func configureBubblePhysics(items: [StatsPhysicsItem], sceneSize: CGSize) {
+        physicsScene.register(
+            items: items,
+            sceneSize: sceneSize
         ) { centers in
-            bubbleDragState.update(centers: centers)
+            physicsState.update(centers: centers)
         }
     }
 
     private func defaultCenters(in size: CGSize) -> [StatsHistoryBubbleID: CGPoint] {
-        [
-            .week: CGPoint(x: size.width * 0.17, y: size.height * 0.58),
-            .month: CGPoint(x: size.width * 0.49, y: size.height * 0.40),
-            .year: CGPoint(x: size.width * 0.86, y: size.height * 0.57)
+        let centers: [StatsHistoryBubbleID: CGPoint] = [
+            .week: CGPoint(x: 0.168, y: 0.584),
+            .month: CGPoint(x: 0.444, y: 0.342),
+            .year: CGPoint(x: 0.785, y: 0.654)
         ]
+
+        return Dictionary(
+            uniqueKeysWithValues: centers.map { id, center in
+                return (
+                    id,
+                    CGPoint(
+                        x: size.width * center.x,
+                        y: size.height * center.y
+                    )
+                )
+            }
+        )
     }
 
     private func bubbleDragHitArea(id: StatsHistoryBubbleID, center: CGPoint, diameter: CGFloat) -> some View {
@@ -1989,208 +2014,35 @@ private struct StatsHistoryBubbleField: View {
             .frame(width: diameter * 1.12, height: diameter * 1.12)
             .position(center)
             .highPriorityGesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named("statsHistoryBubbleCanvas"))
+                DragGesture(minimumDistance: 0, coordinateSpace: .named("statsBubblePhysicsCanvas"))
                     .onChanged { value in
-                        bubbleDragState.setDragging(true)
-                        bubblePhysicsScene.drag(id, to: value.location)
+                        isDraggingPhysics = true
+                        physicsScene.drag(id.physicsID, to: value.location)
                     }
                     .onEnded { value in
-                        bubblePhysicsScene.endDrag(
+                        physicsScene.endDrag(
                             predictedVelocity: CGVector(
                                 dx: value.predictedEndLocation.x - value.location.x,
                                 dy: value.predictedEndLocation.y - value.location.y
                             )
                         )
-                        bubbleDragState.setDragging(false)
+                        isDraggingPhysics = false
                     }
             )
     }
+
 }
 
-private final class StatsHistoryBubbleDragState: ObservableObject {
-    @Published private var centers: [StatsHistoryBubbleID: CGPoint] = [:]
-    @Published var isDragging = false
-
-    private var diameters: [StatsHistoryBubbleID: CGFloat] = [:]
-
-    func configureIfNeeded(
-        centers: [StatsHistoryBubbleID: CGPoint],
-        diameters: [StatsHistoryBubbleID: CGFloat]
-    ) {
-        guard self.centers.isEmpty || self.diameters != diameters else {
-            return
+private extension StatsHistoryBubbleID {
+    var physicsID: StatsPhysicsID {
+        switch self {
+        case .week:
+            .weekBubble
+        case .month:
+            .monthBubble
+        case .year:
+            .yearBubble
         }
-
-        self.centers = centers
-        self.diameters = diameters
-    }
-
-    func center(for id: StatsHistoryBubbleID) -> CGPoint? {
-        centers[id]
-    }
-
-    func update(centers: [StatsHistoryBubbleID: CGPoint]) {
-        self.centers = centers
-    }
-
-    func setDragging(_ isDragging: Bool) {
-        self.isDragging = isDragging
-    }
-}
-
-private final class StatsHistoryBubblePhysicsScene: SKScene {
-    private enum PhysicsCategory {
-        static let bubble: UInt32 = 1 << 0
-    }
-
-    private var nodes: [StatsHistoryBubbleID: SKNode] = [:]
-    private var homes: [StatsHistoryBubbleID: CGPoint] = [:]
-    private var dragTarget: CGPoint?
-    private var activeID: StatsHistoryBubbleID?
-    private var updateCenters: (([StatsHistoryBubbleID: CGPoint]) -> Void)?
-    private var configuredSize: CGSize = .zero
-    private var configuredDiameters: [StatsHistoryBubbleID: CGFloat] = [:]
-
-    override init(size: CGSize = .zero) {
-        super.init(size: size)
-        commonInit()
-    }
-
-    required init?(coder aDecoder: NSCoder) {
-        super.init(coder: aDecoder)
-        commonInit()
-    }
-
-    override func didMove(to view: SKView) {
-        view.preferredFramesPerSecond = 120
-    }
-
-    func configure(
-        size: CGSize,
-        diameters: [StatsHistoryBubbleID: CGFloat],
-        centers: [StatsHistoryBubbleID: CGPoint],
-        updateCenters: @escaping ([StatsHistoryBubbleID: CGPoint]) -> Void
-    ) {
-        self.updateCenters = updateCenters
-
-        guard configuredSize != size
-            || configuredDiameters != diameters
-            || nodes.isEmpty else {
-            return
-        }
-
-        configuredSize = size
-        configuredDiameters = diameters
-        self.size = size
-        homes = centers.mapValues { spritePoint(from: $0) }
-        dragTarget = nil
-        activeID = nil
-
-        removeAllChildren()
-        physicsBody = nil
-        nodes = [:]
-
-        for id in StatsHistoryBubbleID.allCases {
-            guard let home = homes[id],
-                  let diameter = diameters[id] else {
-                continue
-            }
-
-            let node = makeBubbleNode(position: home, radius: diameter / 2)
-            nodes[id] = node
-            addChild(node)
-        }
-    }
-
-    func drag(_ id: StatsHistoryBubbleID, to swiftUIPoint: CGPoint) {
-        activeID = id
-        dragTarget = spritePoint(from: swiftUIPoint)
-    }
-
-    func endDrag(predictedVelocity: CGVector = .zero) {
-        if let activeNode {
-            let impulseScale: CGFloat = 0.019
-            activeNode.physicsBody?.applyImpulse(
-                CGVector(
-                    dx: predictedVelocity.dx * impulseScale,
-                    dy: -predictedVelocity.dy * impulseScale
-                )
-            )
-        }
-
-        dragTarget = nil
-        activeID = nil
-    }
-
-    override func update(_ currentTime: TimeInterval) {
-        for (id, node) in nodes {
-            guard let home = homes[id] else {
-                continue
-            }
-
-            applyHomeSpring(to: node, home: home, id: id)
-        }
-
-        updateCenters?(
-            nodes.mapValues { swiftUIPoint(from: $0.position) }
-        )
-    }
-
-    private func commonInit() {
-        backgroundColor = .clear
-        scaleMode = .resizeFill
-        physicsWorld.gravity = .zero
-        physicsWorld.speed = 1
-    }
-
-    private func makeBubbleNode(position: CGPoint, radius: CGFloat) -> SKNode {
-        let node = SKNode()
-        node.position = position
-
-        let body = SKPhysicsBody(circleOfRadius: radius)
-        body.categoryBitMask = PhysicsCategory.bubble
-        body.collisionBitMask = PhysicsCategory.bubble
-        body.contactTestBitMask = 0
-        body.friction = 0
-        body.restitution = 0.86
-        body.linearDamping = 0.44
-        body.angularDamping = 0.5
-        body.allowsRotation = false
-        body.mass = max(0.07, radius / 900)
-        node.physicsBody = body
-
-        return node
-    }
-
-    private func applyHomeSpring(to node: SKNode, home: CGPoint, id: StatsHistoryBubbleID) {
-        let target = activeID == id ? dragTarget ?? home : home
-        let stiffness: CGFloat = activeID == id ? 118 : 5.8
-        let damping: CGFloat = activeID == id ? 2.4 : 1.25
-        let dx = target.x - node.position.x
-        let dy = target.y - node.position.y
-        let velocity = node.physicsBody?.velocity ?? .zero
-        let force = CGVector(
-            dx: dx * stiffness - velocity.dx * damping,
-            dy: dy * stiffness - velocity.dy * damping
-        )
-
-        node.physicsBody?.applyForce(force)
-    }
-
-    private var activeNode: SKNode? {
-        guard let activeID else {
-            return nil
-        }
-
-        return nodes[activeID]
-    }
-
-    private func spritePoint(from swiftUIPoint: CGPoint) -> CGPoint {
-        CGPoint(x: swiftUIPoint.x, y: size.height - swiftUIPoint.y)
-    }
-
-    private func swiftUIPoint(from spritePoint: CGPoint) -> CGPoint {
-        CGPoint(x: spritePoint.x, y: size.height - spritePoint.y)
     }
 }
 
@@ -2200,11 +2052,7 @@ private struct StatsHistoryBubbleView: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(.regularMaterial)
-                .overlay {
-                    Circle()
-                        .fill(Color.goodFriendsAccent.opacity(0.16))
-                }
+                .fill(Color.goodFriendsAccent)
                 .overlay {
                     Circle()
                         .stroke(.white.opacity(0.18), lineWidth: 1)
