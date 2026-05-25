@@ -1,6 +1,5 @@
 import SwiftData
 import SwiftUI
-import SpriteKit
 import UIKit
 
 struct ContentView: View {
@@ -1214,7 +1213,6 @@ private struct StatsFriendOverviewCard: View {
     let plannedCheckInsPerMonth: Int
     @Binding var isDraggingBalloon: Bool
     @StateObject private var balloonDragState = StatsBalloonDragState()
-    @State private var balloonDragScene = StatsBalloonDragScene()
 
     // Tune these normalized points to move the strings' hand anchors.
     // x and y are measured from the silhouette image's top-left corner, from 0...1.
@@ -1302,7 +1300,7 @@ private struct StatsFriendOverviewCard: View {
             }
             .coordinateSpace(name: "statsBalloonCanvas")
             .onAppear {
-                configureBalloonDragScene(
+                configureBalloonDragState(
                     size: size,
                     balloonSize: balloonSize,
                     leftBalloonCenter: defaultLeftBalloonCenter,
@@ -1310,7 +1308,7 @@ private struct StatsFriendOverviewCard: View {
                 )
             }
             .onChange(of: size) { _, newSize in
-                configureBalloonDragScene(
+                configureBalloonDragState(
                     size: newSize,
                     balloonSize: balloonSize,
                     leftBalloonCenter: defaultLeftBalloonCenter,
@@ -1318,7 +1316,7 @@ private struct StatsFriendOverviewCard: View {
                 )
             }
             .onChange(of: balloonSize) { _, newBalloonSize in
-                configureBalloonDragScene(
+                configureBalloonDragState(
                     size: size,
                     balloonSize: newBalloonSize,
                     leftBalloonCenter: defaultLeftBalloonCenter,
@@ -1335,7 +1333,7 @@ private struct StatsFriendOverviewCard: View {
         }
     }
 
-    private func configureBalloonDragScene(
+    private func configureBalloonDragState(
         size: CGSize,
         balloonSize: CGSize,
         leftBalloonCenter: CGPoint,
@@ -1343,13 +1341,9 @@ private struct StatsFriendOverviewCard: View {
     ) {
         balloonDragState.configureIfNeeded(
             layoutSize: size,
+            balloonSize: balloonSize,
             leftBalloonCenter: leftBalloonCenter,
             rightBalloonCenter: rightBalloonCenter
-        )
-        balloonDragScene.configure(
-            state: balloonDragState,
-            size: size,
-            balloonSize: balloonSize
         )
     }
 
@@ -1404,7 +1398,7 @@ private struct StatsFriendOverviewCard: View {
                         balloonDragState.move(side, to: value.location)
                     }
                     .onEnded { _ in
-                        balloonDragState.returnToDefault(side)
+                        balloonDragState.returnToDefaults()
                         balloonDragState.setDragging(false)
                     }
             )
@@ -1422,20 +1416,26 @@ private final class StatsBalloonDragState: ObservableObject {
     @Published var isDragging = false
 
     private var layoutSize: CGSize = .zero
+    private var balloonSize: CGSize = .zero
     private var defaultLeftBalloonCenter: CGPoint?
     private var defaultRightBalloonCenter: CGPoint?
     private let returnAnimation = Animation.interpolatingSpring(stiffness: 82, damping: 10)
 
     func configureIfNeeded(
         layoutSize: CGSize,
+        balloonSize: CGSize,
         leftBalloonCenter: CGPoint,
         rightBalloonCenter: CGPoint
     ) {
-        guard self.layoutSize != layoutSize || self.leftBalloonCenter == nil || self.rightBalloonCenter == nil else {
+        guard self.layoutSize != layoutSize
+            || self.balloonSize != balloonSize
+            || self.leftBalloonCenter == nil
+            || self.rightBalloonCenter == nil else {
             return
         }
 
         self.layoutSize = layoutSize
+        self.balloonSize = balloonSize
         defaultLeftBalloonCenter = leftBalloonCenter
         defaultRightBalloonCenter = rightBalloonCenter
         self.leftBalloonCenter = leftBalloonCenter
@@ -1443,11 +1443,25 @@ private final class StatsBalloonDragState: ObservableObject {
     }
 
     func move(_ balloon: StatsBalloonSide, to center: CGPoint) {
+        guard let defaultLeftBalloonCenter, let defaultRightBalloonCenter else {
+            return
+        }
+
         switch balloon {
         case .left:
             leftBalloonCenter = center
+            rightBalloonCenter = passiveBalloonCenter(
+                activeCenter: center,
+                passiveDefaultCenter: defaultRightBalloonCenter,
+                fallbackDirection: CGPoint(x: 1, y: 0)
+            )
         case .right:
             rightBalloonCenter = center
+            leftBalloonCenter = passiveBalloonCenter(
+                activeCenter: center,
+                passiveDefaultCenter: defaultLeftBalloonCenter,
+                fallbackDirection: CGPoint(x: -1, y: 0)
+            )
         }
     }
 
@@ -1455,123 +1469,43 @@ private final class StatsBalloonDragState: ObservableObject {
         self.isDragging = isDragging
     }
 
-    func returnToDefault(_ balloon: StatsBalloonSide) {
-        switch balloon {
-        case .left:
-            guard let defaultLeftBalloonCenter else {
-                return
-            }
-
-            withAnimation(returnAnimation) {
-                leftBalloonCenter = defaultLeftBalloonCenter
-            }
-        case .right:
-            guard let defaultRightBalloonCenter else {
-                return
-            }
-
-            withAnimation(returnAnimation) {
-                rightBalloonCenter = defaultRightBalloonCenter
-            }
-        }
-    }
-}
-
-private final class StatsBalloonDragScene: SKScene {
-    private weak var dragState: StatsBalloonDragState?
-    private var balloonSize: CGSize = .zero
-    private var activeBalloon: StatsBalloonSide?
-
-    override init(size: CGSize = .zero) {
-        super.init(size: size)
-        backgroundColor = .clear
-        scaleMode = .resizeFill
-    }
-
-    required init?(coder aDecoder: NSCoder) {
-        super.init(coder: aDecoder)
-        backgroundColor = .clear
-        scaleMode = .resizeFill
-    }
-
-    func configure(state: StatsBalloonDragState, size: CGSize, balloonSize: CGSize) {
-        dragState = state
-        self.size = size
-        self.balloonSize = balloonSize
-        backgroundColor = .clear
-    }
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first, let dragState else {
+    func returnToDefaults() {
+        guard let defaultLeftBalloonCenter, let defaultRightBalloonCenter else {
             return
         }
 
-        let touchPoint = swiftUIPoint(from: touch.location(in: self))
-        activeBalloon = nearestBalloon(to: touchPoint, in: dragState)
-        dragState.setDragging(activeBalloon != nil)
-    }
-
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first, let activeBalloon, let dragState else {
-            return
+        withAnimation(returnAnimation) {
+            leftBalloonCenter = defaultLeftBalloonCenter
+            rightBalloonCenter = defaultRightBalloonCenter
         }
-
-        dragState.move(activeBalloon, to: swiftUIPoint(from: touch.location(in: self)))
     }
 
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let activeBalloon {
-            dragState?.returnToDefault(activeBalloon)
-        }
-
-        activeBalloon = nil
-        dragState?.setDragging(false)
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let activeBalloon {
-            dragState?.returnToDefault(activeBalloon)
-        }
-
-        activeBalloon = nil
-        dragState?.setDragging(false)
-    }
-
-    private func nearestBalloon(to point: CGPoint, in dragState: StatsBalloonDragState) -> StatsBalloonSide? {
-        let hitSize = CGSize(
-            width: balloonSize.width * 1.12,
-            height: balloonSize.height * 1.12
+    private func passiveBalloonCenter(
+        activeCenter: CGPoint,
+        passiveDefaultCenter: CGPoint,
+        fallbackDirection: CGPoint
+    ) -> CGPoint {
+        let minimumDistance = balloonSize.width
+        let delta = CGPoint(
+            x: passiveDefaultCenter.x - activeCenter.x,
+            y: passiveDefaultCenter.y - activeCenter.y
         )
-        let candidates: [(StatsBalloonSide, CGPoint?)] = [
-            (.left, dragState.leftBalloonCenter),
-            (.right, dragState.rightBalloonCenter)
-        ]
+        let distance = hypot(delta.x, delta.y)
+        guard distance < minimumDistance else {
+            return passiveDefaultCenter
+        }
 
-        return candidates
-            .compactMap { side, center -> (StatsBalloonSide, CGFloat)? in
-                guard let center else {
-                    return nil
-                }
+        let direction: CGPoint
+        if distance > 0.001 {
+            direction = CGPoint(x: delta.x / distance, y: delta.y / distance)
+        } else {
+            direction = fallbackDirection
+        }
 
-                let hitRect = CGRect(
-                    x: center.x - hitSize.width / 2,
-                    y: center.y - hitSize.height / 2,
-                    width: hitSize.width,
-                    height: hitSize.height
-                )
-                guard hitRect.contains(point) else {
-                    return nil
-                }
-
-                let distance = hypot(center.x - point.x, center.y - point.y)
-                return (side, distance)
-            }
-            .min { $0.1 < $1.1 }?
-            .0
-    }
-
-    private func swiftUIPoint(from scenePoint: CGPoint) -> CGPoint {
-        CGPoint(x: scenePoint.x, y: size.height - scenePoint.y)
+        return CGPoint(
+            x: activeCenter.x + direction.x * minimumDistance,
+            y: activeCenter.y + direction.y * minimumDistance
+        )
     }
 }
 
