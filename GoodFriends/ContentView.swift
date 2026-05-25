@@ -2052,7 +2052,7 @@ private struct StatsHistoryBubbleView: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color.goodFriendsAccent)
+                .fill(.regularMaterial)
                 .overlay {
                     Circle()
                         .stroke(.white.opacity(0.18), lineWidth: 1)
