@@ -1233,7 +1233,8 @@ private struct StatsTabView: View {
                         .minimumScaleFactor(0.72)
 
                         Text("Check-in History")
-                            .font(.headline)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.white)
 
                         StatsHistoryBubbleField(
                             bubbles: [
@@ -1312,6 +1313,7 @@ private final class StatsUnifiedPhysicsScene: SKScene {
     private var activeID: StatsPhysicsID?
     private var updateCenters: (([StatsPhysicsID: CGPoint]) -> Void)?
     private var configuredSize: CGSize = .zero
+    private var idleBobbingEnabled = false
 
     override init(size: CGSize = .zero) {
         super.init(size: size)
@@ -1381,13 +1383,17 @@ private final class StatsUnifiedPhysicsScene: SKScene {
         activeID = nil
     }
 
+    func setIdleBobbingEnabled(_ isEnabled: Bool) {
+        idleBobbingEnabled = isEnabled
+    }
+
     override func update(_ currentTime: TimeInterval) {
         for (id, node) in nodes {
             guard let home = homes[id] else {
                 continue
             }
 
-            applyHomeSpring(to: node, home: home, id: id)
+            applyHomeSpring(to: node, home: home, id: id, currentTime: currentTime)
         }
 
         updateCenters?(
@@ -1421,8 +1427,8 @@ private final class StatsUnifiedPhysicsScene: SKScene {
         return node
     }
 
-    private func applyHomeSpring(to node: SKNode, home: CGPoint, id: StatsPhysicsID) {
-        let target = activeID == id ? dragTarget ?? home : home
+    private func applyHomeSpring(to node: SKNode, home: CGPoint, id: StatsPhysicsID, currentTime: TimeInterval) {
+        let target = activeID == id ? dragTarget ?? home : idleTarget(for: id, home: home, currentTime: currentTime)
         let stiffness: CGFloat = activeID == id ? 112 : 5.4
         let damping: CGFloat = activeID == id ? 2.25 : 1.18
         let dx = target.x - node.position.x
@@ -1434,6 +1440,22 @@ private final class StatsUnifiedPhysicsScene: SKScene {
         )
 
         node.physicsBody?.applyForce(force)
+    }
+
+    private func idleTarget(for id: StatsPhysicsID, home: CGPoint, currentTime: TimeInterval) -> CGPoint {
+        guard idleBobbingEnabled, id == .leftBalloon || id == .rightBalloon else {
+            return home
+        }
+
+        let phase: CGFloat = id == .leftBalloon ? 0 : .pi * 0.72
+        let time = CGFloat(currentTime)
+        let verticalBob = sin(time * 1.55 + phase) * 4.5
+        let horizontalDrift = sin(time * 0.9 + phase) * 1.4
+
+        return CGPoint(
+            x: home.x + horizontalDrift,
+            y: home.y + verticalBob
+        )
     }
 
     private var activeNode: SKNode? {
@@ -1611,6 +1633,7 @@ private struct StatsFriendOverviewCard: View {
     }
 
     private func configureBalloonPhysics(items: [StatsPhysicsItem], sceneSize: CGSize) {
+        physicsScene.setIdleBobbingEnabled(true)
         physicsScene.register(
             items: items,
             sceneSize: sceneSize
@@ -1773,6 +1796,8 @@ private struct StatsBalloonView: View {
             let size = proxy.size
             let bodyHeight = size.height * 0.91
             let knotSize = CGSize(width: size.width * 0.085, height: size.height * 0.065)
+            let valueFontSize = size.height * 0.32
+            let titleFontSize = size.height * 0.095
 
             ZStack {
                 StatsBalloonKnotShape()
@@ -1797,16 +1822,16 @@ private struct StatsBalloonView: View {
 
                 VStack(spacing: 2) {
                     Text(value)
-                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                        .font(.system(size: valueFontSize, weight: .black, design: .rounded))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.48)
+                        .minimumScaleFactor(0.42)
                         .monospacedDigit()
 
                     Text(title)
-                        .font(.caption.weight(.semibold))
+                        .font(.system(size: titleFontSize, weight: .semibold, design: .rounded))
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
-                        .minimumScaleFactor(0.7)
+                        .minimumScaleFactor(0.62)
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
