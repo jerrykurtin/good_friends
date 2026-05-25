@@ -1214,105 +1214,74 @@ private struct StatsFriendOverviewCard: View {
     private let leftHandAnchor = CGPoint(x: 0.099, y: 0.465)
     private let rightHandAnchor = CGPoint(x: 0.901, y: 0.465)
     private let silhouetteSourceSize = CGSize(width: 853, height: 1844)
-    private let balloonScale: CGFloat = 1.10
+    private let balloonScale: CGFloat = 1.09
+    private let peopleScale: CGFloat = 0.973
     private let rightBalloonYOffset: CGFloat = 0.104
     private let stringAttachmentY: CGFloat = 0.426
 
-    // Tune these balloon body values, then copy the adjusted values back here.
-    @State private var balloonSideInset: CGFloat = -0.2
-    @State private var balloonShoulderY: CGFloat = 0.468
-    @State private var balloonLowerFullness: CGFloat = 1
-    @State private var balloonNeckWidth: CGFloat = 0.0
-    @State private var balloonBottomY: CGFloat = 0.995
-
     var body: some View {
-        VStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Balloon shape tuning")
-                    .font(.caption.weight(.semibold))
+        GeometryReader { proxy in
+            let size = proxy.size
+            let baseBalloonSize = CGSize(
+                width: min(144, size.width * 0.35),
+                height: min(158, size.width * 0.39)
+            )
+            let balloonSize = CGSize(
+                width: baseBalloonSize.width * balloonScale,
+                height: baseBalloonSize.height * balloonScale
+            )
+            let leftBalloonCenter = CGPoint(x: size.width * 0.27, y: size.height * 0.23)
+            let rightBalloonCenter = CGPoint(x: size.width * 0.73, y: size.height * (0.23 + rightBalloonYOffset))
+            let imageFrameSize = CGSize(
+                width: size.width * 1.26 * peopleScale,
+                height: size.height * 1.02 * peopleScale
+            )
+            let imageCenter = CGPoint(x: size.width * 0.5, y: size.height * 0.75)
+            let imageRect = renderedImageRect(
+                sourceSize: silhouetteSourceSize,
+                frameSize: imageFrameSize,
+                center: imageCenter
+            )
+            let leftHandPoint = point(in: imageRect, normalized: leftHandAnchor)
+            let rightHandPoint = point(in: imageRect, normalized: rightHandAnchor)
 
-                StatsTuningSlider(title: "Side inset", value: $balloonSideInset, range: 0.00...0.10)
-                StatsTuningSlider(title: "Shoulder y", value: $balloonShoulderY, range: 0.34...0.50)
-                StatsTuningSlider(title: "Lower fullness", value: $balloonLowerFullness, range: 0.82...1.00)
-                StatsTuningSlider(title: "Neck width", value: $balloonNeckWidth, range: 0.12...0.38)
-                StatsTuningSlider(title: "Bottom y", value: $balloonBottomY, range: 0.94...1.00)
-            }
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-            GeometryReader { proxy in
-                let size = proxy.size
-                let baseBalloonSize = CGSize(
-                    width: min(144, size.width * 0.35),
-                    height: min(158, size.width * 0.39)
+            ZStack {
+                statsBalloonString(
+                    from: leftHandPoint,
+                    to: CGPoint(x: leftBalloonCenter.x, y: leftBalloonCenter.y + balloonSize.height * stringAttachmentY),
+                    controlOffset: -28
                 )
-                let balloonSize = CGSize(
-                    width: baseBalloonSize.width * balloonScale,
-                    height: baseBalloonSize.height * balloonScale
+
+                statsBalloonString(
+                    from: rightHandPoint,
+                    to: CGPoint(x: rightBalloonCenter.x, y: rightBalloonCenter.y + balloonSize.height * stringAttachmentY),
+                    controlOffset: 28
                 )
-                let leftBalloonCenter = CGPoint(x: size.width * 0.27, y: size.height * 0.23)
-                let rightBalloonCenter = CGPoint(x: size.width * 0.73, y: size.height * (0.23 + rightBalloonYOffset))
-                let imageFrameSize = CGSize(
-                    width: size.width * 1.26,
-                    height: size.height * 1.02
+
+                Image("StatsFriendsSilhouette")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: imageFrameSize.width, height: imageFrameSize.height)
+                    .position(imageCenter)
+                    .allowsHitTesting(false)
+
+                StatsBalloonView(
+                    value: "\(closeFriendsCount)",
+                    title: "Close friends"
                 )
-                let imageCenter = CGPoint(x: size.width * 0.5, y: size.height * 0.75)
-                let imageRect = renderedImageRect(
-                    sourceSize: silhouetteSourceSize,
-                    frameSize: imageFrameSize,
-                    center: imageCenter
+                    .frame(width: balloonSize.width, height: balloonSize.height)
+                    .position(leftBalloonCenter)
+
+                StatsBalloonView(
+                    value: "\(plannedCheckInsPerMonth)",
+                    title: "Planned monthly"
                 )
-                let leftHandPoint = point(in: imageRect, normalized: leftHandAnchor)
-                let rightHandPoint = point(in: imageRect, normalized: rightHandAnchor)
-
-                ZStack {
-                    statsBalloonString(
-                        from: leftHandPoint,
-                        to: CGPoint(x: leftBalloonCenter.x, y: leftBalloonCenter.y + balloonSize.height * stringAttachmentY),
-                        controlOffset: -28
-                    )
-
-                    statsBalloonString(
-                        from: rightHandPoint,
-                        to: CGPoint(x: rightBalloonCenter.x, y: rightBalloonCenter.y + balloonSize.height * stringAttachmentY),
-                        controlOffset: 28
-                    )
-
-                    Image("StatsFriendsSilhouette")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: imageFrameSize.width, height: imageFrameSize.height)
-                        .position(imageCenter)
-                        .allowsHitTesting(false)
-
-                    StatsBalloonView(
-                        value: "\(closeFriendsCount)",
-                        title: "Close friends",
-                        sideInset: balloonSideInset,
-                        shoulderY: balloonShoulderY,
-                        lowerFullness: balloonLowerFullness,
-                        neckWidth: balloonNeckWidth,
-                        bottomY: balloonBottomY
-                    )
-                        .frame(width: balloonSize.width, height: balloonSize.height)
-                        .position(leftBalloonCenter)
-
-                    StatsBalloonView(
-                        value: "\(plannedCheckInsPerMonth)",
-                        title: "Planned monthly",
-                        sideInset: balloonSideInset,
-                        shoulderY: balloonShoulderY,
-                        lowerFullness: balloonLowerFullness,
-                        neckWidth: balloonNeckWidth,
-                        bottomY: balloonBottomY
-                    )
-                        .frame(width: balloonSize.width, height: balloonSize.height)
-                        .position(rightBalloonCenter)
-                }
+                    .frame(width: balloonSize.width, height: balloonSize.height)
+                    .position(rightBalloonCenter)
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 610)
+        .frame(height: 455)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(closeFriendsCount) close friends, \(plannedCheckInsPerMonth) planned check-ins per month")
     }
@@ -1361,11 +1330,6 @@ private struct StatsFriendOverviewCard: View {
 private struct StatsBalloonView: View {
     let value: String
     let title: String
-    let sideInset: CGFloat
-    let shoulderY: CGFloat
-    let lowerFullness: CGFloat
-    let neckWidth: CGFloat
-    let bottomY: CGFloat
 
     var body: some View {
         GeometryReader { proxy in
@@ -1374,28 +1338,6 @@ private struct StatsBalloonView: View {
             let knotSize = CGSize(width: size.width * 0.085, height: size.height * 0.065)
 
             ZStack {
-                StatsBalloonBodyShape(
-                    sideInset: sideInset,
-                    shoulderY: shoulderY,
-                    lowerFullness: lowerFullness,
-                    neckWidth: neckWidth,
-                    bottomY: bottomY
-                )
-                    .fill(Color.goodFriendsAccent)
-                    .frame(width: size.width, height: bodyHeight)
-                    .position(x: size.width / 2, y: bodyHeight / 2)
-
-                StatsBalloonBodyShape(
-                    sideInset: sideInset,
-                    shoulderY: shoulderY,
-                    lowerFullness: lowerFullness,
-                    neckWidth: neckWidth,
-                    bottomY: bottomY
-                )
-                    .stroke(.white.opacity(0.12), lineWidth: 1)
-                    .frame(width: size.width, height: bodyHeight)
-                    .position(x: size.width / 2, y: bodyHeight / 2)
-
                 StatsBalloonKnotShape()
                     .fill(Color.goodFriendsAccent)
                     .frame(width: knotSize.width, height: knotSize.height)
@@ -1405,6 +1347,16 @@ private struct StatsBalloonView: View {
                     .stroke(.white.opacity(0.12), lineWidth: 1)
                     .frame(width: knotSize.width, height: knotSize.height)
                     .position(x: size.width / 2, y: size.height * 0.91)
+
+                StatsBalloonBodyShape()
+                    .fill(Color.goodFriendsAccent)
+                    .frame(width: size.width, height: bodyHeight)
+                    .position(x: size.width / 2, y: bodyHeight / 2)
+
+                StatsBalloonBodyShape()
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                    .frame(width: size.width, height: bodyHeight)
+                    .position(x: size.width / 2, y: bodyHeight / 2)
 
                 VStack(spacing: 2) {
                     Text(value)
@@ -1428,44 +1380,14 @@ private struct StatsBalloonView: View {
     }
 }
 
-private struct StatsTuningSlider: View {
-    let title: String
-    @Binding var value: CGFloat
-    let range: ClosedRange<CGFloat>
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title)
-                    .font(.caption2.weight(.semibold))
-
-                Spacer()
-
-                Text(value, format: .number.precision(.fractionLength(3)))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-
-            Slider(value: $value, in: range)
-                .tint(.goodFriendsAccent)
-        }
-    }
-}
-
 private struct StatsBalloonBodyShape: Shape {
-    let sideInset: CGFloat
-    let shoulderY: CGFloat
-    let lowerFullness: CGFloat
-    let neckWidth: CGFloat
-    let bottomY: CGFloat
-
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        let sideInset = min(max(sideInset, 0), 0.16)
-        let shoulderY = min(max(shoulderY, 0.25), 0.60)
-        let lowerFullness = min(max(lowerFullness, 0.70), 1.05)
-        let neckWidth = min(max(neckWidth, 0.08), 0.50)
-        let bottomY = min(max(bottomY, 0.88), 1.0)
+        let sideInset: CGFloat = 0
+        let shoulderY: CGFloat = 0.468
+        let lowerFullness: CGFloat = 1
+        let neckWidth: CGFloat = 0.08
+        let bottomY: CGFloat = 0.995
         let rightShoulder = CGPoint(
             x: rect.minX + rect.width * (1 - sideInset),
             y: rect.minY + rect.height * shoulderY
