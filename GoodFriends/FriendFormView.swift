@@ -250,11 +250,11 @@ struct FriendFormView: View {
                 }
 
                 DispatchQueue.main.async {
-                    NotificationScheduler.scheduleReminder(for: savedFriend)
+                    NotificationScheduler.syncReminder(for: savedFriend)
                 }
             }
         } else {
-            NotificationScheduler.scheduleReminder(for: savedFriend)
+            NotificationScheduler.syncReminder(for: savedFriend)
         }
         dismiss()
     }

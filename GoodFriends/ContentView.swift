@@ -236,6 +236,7 @@ private struct CheckInTabView: View {
     @Query(sort: \Friend.name) private var friends: [Friend]
     @State private var showingCheckInDetails = false
     @State private var showingFriendForm = false
+    @State private var showingNotificationSettings = false
     @State private var selectedCardIndex = 0
     @State private var isShowingNextUp = false
     @State private var dismissedFriendIDs = Set<UUID>()
@@ -340,6 +341,16 @@ private struct CheckInTabView: View {
                 .padding(20)
             }
             .appNavigationImageHeader("GoodFriendsHeader", accessibilityLabel: "GOOD FRiENDS")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingNotificationSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Notification settings")
+                }
+            }
             .onChange(of: cardFriends.map(\.id)) { _, ids in
                 if ids.isEmpty {
                     selectedCardIndex = 0
@@ -351,6 +362,11 @@ private struct CheckInTabView: View {
             .sheet(isPresented: $showingFriendForm) {
                 NavigationStack {
                     FriendFormView()
+                }
+            }
+            .sheet(isPresented: $showingNotificationSettings) {
+                NavigationStack {
+                    NotificationSettingsView(friends: friends)
                 }
             }
             .onDisappear {
@@ -367,7 +383,7 @@ private struct CheckInTabView: View {
         modelContext.insert(checkIn)
 
         try? modelContext.save()
-        NotificationScheduler.scheduleReminder(for: friend)
+        NotificationScheduler.syncReminder(for: friend)
         dismissFromCurrentCheckInSession(friend)
     }
 
@@ -433,6 +449,217 @@ private struct AllCaughtUpHeartIcon: View {
                 isHeartVisible = true
             }
         }
+    }
+}
+
+private struct NotificationSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    let friends: [Friend]
+
+    @State private var deliveryMode: NotificationDeliveryMode
+    @State private var regularValue: Int
+    @State private var regularUnit: NotificationRegularUnit
+    @State private var regularTime: Date
+    @State private var dueTime: Date
+
+    init(friends: [Friend]) {
+        self.friends = friends
+
+        let savedDeliveryMode = UserDefaults.standard.string(forKey: NotificationDeliveryMode.storageKey)
+            .flatMap(NotificationDeliveryMode.init(rawValue:)) ?? NotificationDeliveryMode.defaultValue
+        let savedRegularValue = UserDefaults.standard.integer(forKey: NotificationScheduler.regularValueStorageKey)
+        let savedRegularUnit = UserDefaults.standard.string(forKey: NotificationRegularUnit.storageKey)
+            .flatMap(NotificationRegularUnit.init(rawValue:)) ?? NotificationRegularUnit.defaultValue
+        let savedRegularHour = UserDefaults.standard.object(forKey: NotificationScheduler.regularHourStorageKey) as? Int
+        let savedRegularMinute = UserDefaults.standard.object(forKey: NotificationScheduler.regularMinuteStorageKey) as? Int
+        let savedDueHour = UserDefaults.standard.object(forKey: NotificationScheduler.dueHourStorageKey) as? Int
+        let savedDueMinute = UserDefaults.standard.object(forKey: NotificationScheduler.dueMinuteStorageKey) as? Int
+
+        _deliveryMode = State(initialValue: savedDeliveryMode)
+        _regularValue = State(initialValue: savedRegularValue > 0 ? savedRegularValue : NotificationScheduler.defaultRegularValue)
+        _regularUnit = State(initialValue: savedRegularUnit)
+        _regularTime = State(initialValue: Self.timeDate(
+            hour: savedRegularHour ?? NotificationScheduler.defaultRegularHour,
+            minute: savedRegularMinute ?? NotificationScheduler.defaultRegularMinute
+        ))
+        _dueTime = State(initialValue: Self.timeDate(
+            hour: savedDueHour ?? NotificationScheduler.defaultDueHour,
+            minute: savedDueMinute ?? NotificationScheduler.defaultDueMinute
+        ))
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(NotificationDeliveryMode.allCases) { mode in
+                    notificationModeButton(mode)
+
+                    if mode == .regularCycle && deliveryMode == .regularCycle {
+                        regularCycleCadenceMenu
+                    }
+
+                    if mode == .whenCheckInIsDue && deliveryMode == .whenCheckInIsDue {
+                        dueCheckInTimeMenu
+                    }
+                }
+            } header: {
+                Text("Notifications")
+            } footer: {
+                Text(deliveryMode.description)
+            }
+        }
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .tint(.secondary)
+            }
+
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") {
+                    UserDefaults.standard.set(deliveryMode.rawValue, forKey: NotificationDeliveryMode.storageKey)
+                    UserDefaults.standard.set(regularValue, forKey: NotificationScheduler.regularValueStorageKey)
+                    UserDefaults.standard.set(regularUnit.rawValue, forKey: NotificationRegularUnit.storageKey)
+                    let timeComponents = Calendar.current.dateComponents([.hour, .minute], from: regularTime)
+                    UserDefaults.standard.set(timeComponents.hour ?? NotificationScheduler.defaultRegularHour, forKey: NotificationScheduler.regularHourStorageKey)
+                    UserDefaults.standard.set(timeComponents.minute ?? NotificationScheduler.defaultRegularMinute, forKey: NotificationScheduler.regularMinuteStorageKey)
+                    let dueTimeComponents = Calendar.current.dateComponents([.hour, .minute], from: dueTime)
+                    UserDefaults.standard.set(dueTimeComponents.hour ?? NotificationScheduler.defaultDueHour, forKey: NotificationScheduler.dueHourStorageKey)
+                    UserDefaults.standard.set(dueTimeComponents.minute ?? NotificationScheduler.defaultDueMinute, forKey: NotificationScheduler.dueMinuteStorageKey)
+
+                    guard deliveryMode != .none else {
+                        NotificationScheduler.syncReminders(for: friends)
+                        dismiss()
+                        return
+                    }
+
+                    guard !friends.isEmpty else {
+                        dismiss()
+                        return
+                    }
+
+                    NotificationScheduler.requestAuthorization { isGranted in
+                        guard isGranted else {
+                            return
+                        }
+
+                        DispatchQueue.main.async {
+                            NotificationScheduler.syncReminders(for: friends)
+                        }
+                    }
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    private func notificationModeButton(_ mode: NotificationDeliveryMode) -> some View {
+        Button {
+            deliveryMode = mode
+        } label: {
+            HStack {
+                Text(mode.title)
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                if deliveryMode == mode {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.goodFriendsAccent)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var regularCycleCadenceMenu: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(.white)
+                .frame(width: 3)
+
+            HStack(spacing: 6) {
+                Text("Every")
+
+                Menu {
+                    ForEach(1...30, id: \.self) { value in
+                        Button("\(value)") {
+                            regularValue = value
+                        }
+                    }
+                } label: {
+                    settingsMenuLabel("\(regularValue)")
+                }
+
+                Spacer()
+                    .frame(width: 2)
+
+                Menu {
+                    ForEach(NotificationRegularUnit.allCases) { unit in
+                        Button(unit.title(for: regularValue)) {
+                            regularUnit = unit
+                        }
+                    }
+                } label: {
+                    settingsMenuLabel(regularUnit.title(for: regularValue))
+                }
+
+                Text("at")
+
+                settingsTimePicker(selection: $regularTime)
+            }
+        }
+        .padding(.leading, 18)
+        .padding(.vertical, 4)
+    }
+
+    private var dueCheckInTimeMenu: some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(.white)
+                .frame(width: 3)
+
+            HStack(spacing: 6) {
+                Text("At")
+                settingsTimePicker(selection: $dueTime)
+            }
+        }
+        .padding(.leading, 18)
+        .padding(.vertical, 4)
+    }
+
+    private func settingsMenuLabel(_ title: String) -> some View {
+        HStack(spacing: 2) {
+            Text(title)
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.bold))
+        }
+        .font(.body.weight(.semibold))
+        .foregroundStyle(Color.goodFriendsAccent)
+    }
+
+    private func settingsTimePicker(selection: Binding<Date>) -> some View {
+        DatePicker("", selection: selection, displayedComponents: .hourAndMinute)
+            .datePickerStyle(.compact)
+            .labelsHidden()
+            .tint(Color.goodFriendsAccent)
+            .colorMultiply(Color.goodFriendsAccent)
+    }
+
+    private static func timeDate(hour: Int, minute: Int) -> Date {
+        let components = DateComponents(
+            year: 2000,
+            month: 1,
+            day: 1,
+            hour: min(max(hour, 0), 23),
+            minute: min(max(minute, 0), 59)
+        )
+        return Calendar.current.date(from: components) ?? .now
     }
 }
 
@@ -883,7 +1110,7 @@ private struct CheckInDetailsView: View {
         modelContext.insert(checkIn)
 
         try? modelContext.save()
-        NotificationScheduler.scheduleReminder(for: friend)
+        NotificationScheduler.syncReminder(for: friend)
         onSave?()
         dismiss()
     }
@@ -1162,7 +1389,7 @@ private struct HistoryTabView: View {
         try? modelContext.save()
 
         if let friend {
-            NotificationScheduler.scheduleReminder(for: friend)
+            NotificationScheduler.syncReminder(for: friend)
         }
     }
 }
@@ -2313,7 +2540,7 @@ struct HistoryDetailView: View {
         try? modelContext.save()
 
         if let friend = checkIn.friend {
-            NotificationScheduler.scheduleReminder(for: friend)
+            NotificationScheduler.syncReminder(for: friend)
         }
     }
 }

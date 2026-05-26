@@ -106,7 +106,7 @@ struct FriendDetailView: View {
 
         checkInNote = ""
         try? modelContext.save()
-        NotificationScheduler.scheduleReminder(for: friend)
+        NotificationScheduler.syncReminder(for: friend)
     }
 
     private func deleteCheckIns(at offsets: IndexSet) {
@@ -114,6 +114,6 @@ struct FriendDetailView: View {
             modelContext.delete(sortedCheckIns[index])
         }
         try? modelContext.save()
-        NotificationScheduler.scheduleReminder(for: friend)
+        NotificationScheduler.syncReminder(for: friend)
     }
 }
