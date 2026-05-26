@@ -5,7 +5,9 @@ import UIKit
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @AppStorage("hasSeenIntro") private var hasSeenIntro = false
     @State private var selectedTab: AppTab = .checkIn
+    @State private var showingIntro = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -33,10 +35,20 @@ struct ContentView: View {
                 }
                 .tag(AppTab.stats)
         }
+        .sheet(isPresented: $showingIntro, onDismiss: {
+            hasSeenIntro = true
+        }) {
+            AppIntroView {
+                hasSeenIntro = true
+                showingIntro = false
+            }
+        }
         .onAppear {
             configureNativeTabBarAppearance()
             SampleData.seedIfNeeded(in: modelContext)
-            NotificationScheduler.requestAuthorization()
+            if !hasSeenIntro {
+                showingIntro = true
+            }
         }
         .tint(.goodFriendsAccent)
         .preferredColorScheme(.dark)
@@ -174,6 +186,49 @@ private enum AppTab: String, CaseIterable, Identifiable {
         }
     }
 
+}
+
+private struct AppIntroView: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 22) {
+                Text("Welcome to Good Friends!")
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("I built this app to remind me to check in with my close friends. Write down your friends and how often you want to catch up with them, and this app will remind you to check in before it's \"been too long, how's your last two years been?\"")
+
+                    Text("All data is stored encrypted entirely on your phone, and I'll only ever notify you to check in with your friends :)")
+                }
+                .font(.body)
+                .lineSpacing(4)
+                .foregroundStyle(.white.opacity(0.86))
+                .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 12)
+
+                Button(action: onDismiss) {
+                    Text("Get started")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(.goodFriendsAccent)
+            }
+            .padding(28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
 }
 
 private struct CheckInTabView: View {

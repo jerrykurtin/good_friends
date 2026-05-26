@@ -216,6 +216,7 @@ struct FriendFormView: View {
         let savedGroupName = cleanGroupName.isEmpty ? "Friends" : cleanGroupName
         let savedGroupColorHex = colorHex(for: savedGroupName)
         let thresholdDays = resolvedThresholdDays ?? 30
+        let shouldRequestNotificationAuthorization = friend == nil && friends.isEmpty
 
         let savedFriend: Friend
         if let friend {
@@ -242,7 +243,19 @@ struct FriendFormView: View {
         }
 
         try? modelContext.save()
-        NotificationScheduler.scheduleReminder(for: savedFriend)
+        if shouldRequestNotificationAuthorization {
+            NotificationScheduler.requestAuthorization { isGranted in
+                guard isGranted else {
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    NotificationScheduler.scheduleReminder(for: savedFriend)
+                }
+            }
+        } else {
+            NotificationScheduler.scheduleReminder(for: savedFriend)
+        }
         dismiss()
     }
 

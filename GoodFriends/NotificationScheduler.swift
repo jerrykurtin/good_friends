@@ -2,8 +2,10 @@ import Foundation
 import UserNotifications
 
 enum NotificationScheduler {
-    static func requestAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
+    static func requestAuthorization(completion: ((Bool) -> Void)? = nil) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { isGranted, _ in
+            completion?(isGranted)
+        }
     }
 
     static func scheduleReminder(for friend: Friend) {
