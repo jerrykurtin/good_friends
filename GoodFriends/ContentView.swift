@@ -301,7 +301,7 @@ private struct CheckInTabView: View {
                         .zIndex(0)
                         .sheet(isPresented: $showingCheckInDetails) {
                             NavigationStack {
-                                CheckInDetailsView(friend: friend) {
+                                CheckInDetailsView(friend: friend, friends: friends) {
                                     dismissFromCurrentCheckInSession(friend)
                                 }
                             }
@@ -383,7 +383,7 @@ private struct CheckInTabView: View {
         modelContext.insert(checkIn)
 
         try? modelContext.save()
-        NotificationScheduler.syncReminder(for: friend)
+        NotificationScheduler.syncReminders(for: friends)
         dismissFromCurrentCheckInSession(friend)
     }
 
@@ -1023,6 +1023,7 @@ private struct CheckInDetailsView: View {
     @Environment(\.modelContext) private var modelContext
 
     let friend: Friend
+    let friends: [Friend]
     var onSave: (() -> Void)? = nil
 
     @State private var checkInDate = Date()
@@ -1110,7 +1111,7 @@ private struct CheckInDetailsView: View {
         modelContext.insert(checkIn)
 
         try? modelContext.save()
-        NotificationScheduler.syncReminder(for: friend)
+        NotificationScheduler.syncReminders(for: friends)
         onSave?()
         dismiss()
     }
@@ -1353,6 +1354,7 @@ private struct GroupColorPickerPopover: View {
 
 private struct HistoryTabView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Friend.name) private var friends: [Friend]
     @Query(sort: \CheckIn.date, order: .reverse) private var checkIns: [CheckIn]
 
     var body: some View {
@@ -1388,8 +1390,8 @@ private struct HistoryTabView: View {
         modelContext.delete(checkIn)
         try? modelContext.save()
 
-        if let friend {
-            NotificationScheduler.syncReminder(for: friend)
+        if friend != nil {
+            NotificationScheduler.syncReminders(for: friends)
         }
     }
 }
@@ -2489,6 +2491,7 @@ private struct MonthlyCheckInCount: Identifiable {
 
 struct HistoryDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Friend.name) private var friends: [Friend]
     @Bindable var checkIn: CheckIn
     @FocusState private var isNoteFocused: Bool
 
@@ -2539,8 +2542,8 @@ struct HistoryDetailView: View {
         checkIn.note = checkIn.note.trimmingCharacters(in: .whitespacesAndNewlines)
         try? modelContext.save()
 
-        if let friend = checkIn.friend {
-            NotificationScheduler.syncReminder(for: friend)
+        if checkIn.friend != nil {
+            NotificationScheduler.syncReminders(for: friends)
         }
     }
 }

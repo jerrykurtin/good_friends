@@ -243,6 +243,7 @@ struct FriendFormView: View {
         }
 
         try? modelContext.save()
+        let reminderFriends = friends.contains(where: { $0.id == savedFriend.id }) ? friends : friends + [savedFriend]
         if shouldRequestNotificationAuthorization {
             NotificationScheduler.requestAuthorization { isGranted in
                 guard isGranted else {
@@ -250,11 +251,11 @@ struct FriendFormView: View {
                 }
 
                 DispatchQueue.main.async {
-                    NotificationScheduler.syncReminder(for: savedFriend)
+                    NotificationScheduler.syncReminders(for: reminderFriends)
                 }
             }
         } else {
-            NotificationScheduler.syncReminder(for: savedFriend)
+            NotificationScheduler.syncReminders(for: reminderFriends)
         }
         dismiss()
     }
@@ -266,6 +267,7 @@ struct FriendFormView: View {
 
         NotificationScheduler.cancelReminder(for: friend)
         try? FriendDataStore.delete(friend, in: modelContext)
+        NotificationScheduler.syncReminders(for: friends.filter { $0.id != friend.id })
         dismiss()
         onDelete?()
     }

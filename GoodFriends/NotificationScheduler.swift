@@ -52,6 +52,84 @@ enum NotificationRegularUnit: String, CaseIterable, Identifiable {
     }
 }
 
+struct NotificationReminderPlan: Equatable {
+    let identifier: String
+    let date: Date
+    let title: String
+    let body: String
+}
+
+enum NotificationReminderPlanner {
+    static func reminderContent(for dueFriends: [Friend]) -> (title: String, body: String)? {
+        let sortedDueFriends = FriendCheckInPrioritizer.sortedByDueDate(dueFriends)
+        guard let firstFriend = sortedDueFriends.first else {
+            return nil
+        }
+
+        let firstName = firstFriend.firstName
+        let title = "Check in with \(firstName)"
+        let remainingFirstNames = sortedDueFriends.dropFirst().prefix(2).map(\.firstName)
+
+        if remainingFirstNames.isEmpty {
+            return (title, "Consider taking some time to talk to \(firstName) today")
+        }
+
+        let alternatives = remainingFirstNames.joined(separator: " or ")
+        return (title, "Or, consider reaching out to \(alternatives)")
+    }
+
+    static func regularReminderPlans(
+        friends: [Friend],
+        dates: [Date],
+        identifier: (Int) -> String
+    ) -> [NotificationReminderPlan] {
+        dates.enumerated().compactMap { index, date in
+            let dueFriends = dueFriends(from: friends, at: date)
+            guard let content = reminderContent(for: dueFriends) else {
+                return nil
+            }
+
+            return NotificationReminderPlan(
+                identifier: identifier(index),
+                date: date,
+                title: content.title,
+                body: content.body
+            )
+        }
+    }
+
+    static func dueReminderPlans(
+        friends: [Friend],
+        reminderDate: (Friend) -> Date,
+        identifier: (Friend) -> String,
+        now: Date = .now
+    ) -> [NotificationReminderPlan] {
+        friends.compactMap { friend in
+            let date = reminderDate(friend)
+            guard date > now else {
+                return nil
+            }
+
+            let dueFriends = dueFriends(from: friends, at: date)
+            guard dueFriends.contains(where: { $0.id == friend.id }),
+                  let content = reminderContent(for: dueFriends) else {
+                return nil
+            }
+
+            return NotificationReminderPlan(
+                identifier: identifier(friend),
+                date: date,
+                title: content.title,
+                body: content.body
+            )
+        }
+    }
+
+    private static func dueFriends(from friends: [Friend], at date: Date) -> [Friend] {
+        friends.filter { $0.dueDate <= date }
+    }
+}
+
 enum NotificationScheduler {
     static let regularValueStorageKey = "notificationRegularValue"
     static let regularHourStorageKey = "notificationRegularHour"
@@ -80,10 +158,10 @@ enum NotificationScheduler {
             cancelDueReminder(for: friend)
         case .regularCycle:
             cancelDueReminder(for: friend)
-            scheduleRegularReminders()
+            scheduleRegularReminders(for: [friend])
         case .whenCheckInIsDue:
             cancelRegularReminder()
-            scheduleDueReminder(for: friend)
+            scheduleDueReminders(for: [friend])
         }
     }
 
@@ -94,10 +172,10 @@ enum NotificationScheduler {
             friends.forEach(cancelDueReminder)
         case .regularCycle:
             friends.forEach(cancelDueReminder)
-            scheduleRegularReminders()
+            scheduleRegularReminders(for: friends)
         case .whenCheckInIsDue:
             cancelRegularReminder()
-            friends.forEach(scheduleDueReminder)
+            scheduleDueReminders(for: friends)
         }
     }
 
@@ -140,41 +218,29 @@ enum NotificationScheduler {
         return min(max(minute ?? defaultDueMinute, 0), 59)
     }
 
-    private static func scheduleDueReminder(for friend: Friend) {
+    private static func scheduleDueReminders(for friends: [Friend]) {
         let center = UNUserNotificationCenter.current()
-        let identifier = notificationIdentifier(for: friend)
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: friends.map(notificationIdentifier))
 
-        let reminderDate = nextReminderDate(for: friend)
-        guard reminderDate > .now else { return }
-
-        let content = UNMutableNotificationContent()
-        content.title = "Check in with \(friend.displayName)"
-        content.body = friend.city.isEmpty ? "It has been a little while." : "See how things are in \(friend.city)."
-        content.sound = .default
-
-        let dateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: reminderDate)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
-        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
-
-        center.add(request)
+        for plan in NotificationReminderPlanner.dueReminderPlans(
+            friends: friends,
+            reminderDate: nextReminderDate,
+            identifier: notificationIdentifier
+        ) {
+            center.add(notificationRequest(for: plan))
+        }
     }
 
-    private static func scheduleRegularReminders() {
+    private static func scheduleRegularReminders(for friends: [Friend]) {
         let center = UNUserNotificationCenter.current()
         cancelRegularReminder()
 
-        let dates = upcomingRegularReminderDates()
-        for (index, date) in dates.enumerated() {
-            let content = UNMutableNotificationContent()
-            content.title = "Check in with your good friends"
-            content.body = "Take a minute to see who you want to catch up with."
-            content.sound = .default
-
-            let dateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-            let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
-            let request = UNNotificationRequest(identifier: regularReminderIdentifier(for: index), content: content, trigger: trigger)
-            center.add(request)
+        for plan in NotificationReminderPlanner.regularReminderPlans(
+            friends: friends,
+            dates: upcomingRegularReminderDates(),
+            identifier: regularReminderIdentifier
+        ) {
+            center.add(notificationRequest(for: plan))
         }
     }
 
@@ -188,8 +254,15 @@ enum NotificationScheduler {
     }
 
     private static func nextReminderDate(for friend: Friend) -> Date {
-        let startOfDueDay = Calendar.current.startOfDay(for: friend.dueDate)
-        return Calendar.current.date(bySettingHour: currentDueHour, minute: currentDueMinute, second: 0, of: startOfDueDay) ?? friend.dueDate
+        let calendar = Calendar.current
+        let startOfDueDay = calendar.startOfDay(for: friend.dueDate)
+        let reminderDate = calendar.date(bySettingHour: currentDueHour, minute: currentDueMinute, second: 0, of: startOfDueDay) ?? friend.dueDate
+
+        guard reminderDate < friend.dueDate else {
+            return reminderDate
+        }
+
+        return calendar.date(byAdding: .day, value: 1, to: reminderDate) ?? friend.dueDate
     }
 
     private static func upcomingRegularReminderDates() -> [Date] {
@@ -226,5 +299,16 @@ enum NotificationScheduler {
 
     private static func notificationIdentifier(for friend: Friend) -> String {
         "friend-reminder-\(friend.id.uuidString)"
+    }
+
+    private static func notificationRequest(for plan: NotificationReminderPlan) -> UNNotificationRequest {
+        let content = UNMutableNotificationContent()
+        content.title = plan.title
+        content.body = plan.body
+        content.sound = .default
+
+        let dateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: plan.date)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+        return UNNotificationRequest(identifier: plan.identifier, content: content, trigger: trigger)
     }
 }

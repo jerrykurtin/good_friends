@@ -4,6 +4,7 @@ import SwiftUI
 struct FriendDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query(sort: \Friend.name) private var friends: [Friend]
     @Bindable var friend: Friend
 
     @State private var showingEditForm = false
@@ -106,7 +107,7 @@ struct FriendDetailView: View {
 
         checkInNote = ""
         try? modelContext.save()
-        NotificationScheduler.syncReminder(for: friend)
+        NotificationScheduler.syncReminders(for: friends)
     }
 
     private func deleteCheckIns(at offsets: IndexSet) {
@@ -114,6 +115,6 @@ struct FriendDetailView: View {
             modelContext.delete(sortedCheckIns[index])
         }
         try? modelContext.save()
-        NotificationScheduler.syncReminder(for: friend)
+        NotificationScheduler.syncReminders(for: friends)
     }
 }

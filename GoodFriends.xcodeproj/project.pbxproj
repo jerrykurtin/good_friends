@@ -19,6 +19,7 @@
 		011111111111111111111120 /* FriendCheckInPrioritizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 011111111111111111111110 /* FriendCheckInPrioritizer.swift */; };
 		022222222222222222222111 /* FriendDeletionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 022222222222222222222101 /* FriendDeletionTests.swift */; };
 		022222222222222222222112 /* FriendCheckInPrioritizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 022222222222222222222102 /* FriendCheckInPrioritizerTests.swift */; };
+		022222222222222222222113 /* NotificationReminderPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 022222222222222222222103 /* NotificationReminderPlannerTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,6 +47,7 @@
 		022222222222222222222001 /* GoodFriendsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GoodFriendsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		022222222222222222222101 /* FriendDeletionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendDeletionTests.swift; sourceTree = "<group>"; };
 		022222222222222222222102 /* FriendCheckInPrioritizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendCheckInPrioritizerTests.swift; sourceTree = "<group>"; };
+		022222222222222222222103 /* NotificationReminderPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationReminderPlannerTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +108,7 @@
 			children = (
 				022222222222222222222101 /* FriendDeletionTests.swift */,
 				022222222222222222222102 /* FriendCheckInPrioritizerTests.swift */,
+				022222222222222222222103 /* NotificationReminderPlannerTests.swift */,
 			);
 			path = GoodFriendsTests;
 			sourceTree = "<group>";
@@ -227,6 +230,7 @@
 			files = (
 				022222222222222222222111 /* FriendDeletionTests.swift in Sources */,
 				022222222222222222222112 /* FriendCheckInPrioritizerTests.swift in Sources */,
+				022222222222222222222113 /* NotificationReminderPlannerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
