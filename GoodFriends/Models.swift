@@ -97,13 +97,22 @@ final class Friend {
 
 enum GroupColorPalette {
     static let options = [
-        "Lavender": "#6a5acd",
-        "Chili": "#cd1c18",
-        "Pumpkin": "#e9610a",
-        "Olive": "#568203",
         "Blueberry": "#2D68C4",
-        "Chocolate": "#654321",
-        "Kale": "#2c5f34"
+        "Cotton Candy": "#90d5ff",
+        "Honey": "#ffa800",
+        "Kale": "#2c5f34",
+        "Lavender": "#6a5acd",
+        "Mocha": "#6d3b07",
+        "Strawberry": "#c04657",
+        "Tangerine": "#e35336"
+    ]
+
+    static let automaticallyAssignedColorNames = [
+        "Blueberry",
+        "Kale",
+        "Lavender",
+        "Mocha",
+        "Strawberry"
     ]
 
     static var sortedOptions: [(name: String, hex: String)] {
@@ -116,10 +125,20 @@ enum GroupColorPalette {
         }
     }
 
+    static var automaticallyAssignedOptions: [(name: String, hex: String)] {
+        automaticallyAssignedColorNames.compactMap { name in
+            guard let hex = options[name] else {
+                return nil
+            }
+
+            return (name, hex)
+        }
+    }
+
     static func defaultHex(for groupName: String) -> String {
         let normalized = groupName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let total = normalized.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        let options = sortedOptions
+        let options = automaticallyAssignedOptions
         guard !options.isEmpty else {
             return "#6a5acd"
         }

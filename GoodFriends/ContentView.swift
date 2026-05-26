@@ -76,23 +76,13 @@ private extension Color {
         self.init(red: components.red, green: components.green, blue: components.blue)
     }
 
-    static func mutedCardColor(hex: String) -> Color {
+    static func cardColor(hex: String, brightness: Double = 1) -> Color {
         let components = rgbComponents(for: hex)
 
         return Color(
-            red: components.red * 0.46 + 0.14,
-            green: components.green * 0.46 + 0.14,
-            blue: components.blue * 0.46 + 0.14
-        )
-    }
-
-    static func mutedCardShadowColor(hex: String) -> Color {
-        let components = rgbComponents(for: hex)
-
-        return Color(
-            red: components.red * 0.38 + 0.10,
-            green: components.green * 0.38 + 0.10,
-            blue: components.blue * 0.38 + 0.10
+            red: components.red * brightness,
+            green: components.green * brightness,
+            blue: components.blue * brightness
         )
     }
 
@@ -231,7 +221,10 @@ private struct CheckInTabView: View {
 
                 VStack(spacing: 18) {
                     if let friend = selectedFriend {
-                        CheckInCardStack(friends: cardFriends, selectedIndex: $selectedCardIndex) {
+                        CheckInCardStack(
+                            friends: cardFriends,
+                            selectedIndex: $selectedCardIndex
+                        ) {
                             skipCheckIn(for: friend)
                         }
                         .zIndex(2)
@@ -641,8 +634,8 @@ private struct CheckInPromptCard: View {
             .fill(
                 LinearGradient(
                     colors: [
-                        Color.mutedCardColor(hex: friend.resolvedGroupColorHex),
-                        Color.mutedCardShadowColor(hex: friend.resolvedGroupColorHex)
+                        Color(hex: friend.resolvedGroupColorHex),
+                        Color.cardColor(hex: friend.resolvedGroupColorHex, brightness: 0.72)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
